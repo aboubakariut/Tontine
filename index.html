@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="emerald" data-font-size="medium">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f6b4a" />
+  <meta name="description" content="Tontines Facile — Gérez vos tontines en toute transparence" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Tontines Facile" />
+  <link rel="manifest" href="#" id="manifest-link" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <title>Tontines Facile</title>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ SPLASH SCREEN ═══════════════════════════════ -->
+<div id="splash-screen" class="splash">
+  <div class="splash-inner">
+    <div class="splash-logo">
+      <div class="splash-icon">
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="32" cy="20" r="12" stroke="currentColor" stroke-width="3"/>
+          <circle cx="14" cy="44" r="9" stroke="currentColor" stroke-width="3"/>
+          <circle cx="50" cy="44" r="9" stroke="currentColor" stroke-width="3"/>
+          <line x1="22" y1="26" x2="18" y2="36" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          <line x1="42" y1="26" x2="46" y2="36" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          <line x1="23" y1="44" x2="41" y2="44" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="32" cy="44" r="5" fill="currentColor" opacity="0.3"/>
+        </svg>
+      </div>
+      <h1 class="splash-title">Tontines<span>Facile</span></h1>
+      <p class="splash-tagline">La transparence au cœur de votre épargne collective</p>
+    </div>
+    <div class="splash-loader">
+      <div class="loader-bar"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ APP WRAPPER ═══════════════════════════════ -->
+<div id="app" class="app hidden">
+
+  <!-- ── TOP BAR ── -->
+  <header class="topbar" id="topbar">
+    <div class="topbar-left">
+      <button class="btn-icon" id="btn-back" style="display:none" aria-label="Retour">
+        <svg viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="topbar-logo" id="topbar-logo">
+        <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="9" r="6" stroke="currentColor" stroke-width="2"/><circle cx="7" cy="23" r="4.5" stroke="currentColor" stroke-width="2"/><circle cx="25" cy="23" r="4.5" stroke="currentColor" stroke-width="2"/><line x1="11" y1="13" x2="9" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="21" y1="13" x2="23" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="23" x2="20" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span>Tontines Facile</span>
+      </div>
+      <h2 class="topbar-title hidden" id="topbar-title"></h2>
+    </div>
+    <div class="topbar-right">
+      <button class="btn-icon notif-btn" id="btn-notif" aria-label="Notifications">
+        <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        <span class="notif-badge" id="notif-badge" style="display:none">3</span>
+      </button>
+      <button class="btn-icon" id="btn-menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="19" r="1.5" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── DROPDOWN MENU ── -->
+  <div class="dropdown-menu hidden" id="dropdown-menu">
+    <div class="dropdown-header">
+      <div class="dropdown-user" id="dropdown-user-info">
+        <div class="avatar-sm" id="dropdown-avatar">JD</div>
+        <div>
+          <p class="dropdown-name" id="dropdown-name">Jean Dupont</p>
+          <p class="dropdown-email" id="dropdown-email">jean@example.com</p>
+        </div>
+      </div>
+    </div>
+    <nav class="dropdown-nav">
+      <a href="#" class="dropdown-link" data-page="dashboard"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" fill="none"/><rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" fill="none"/><rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" fill="none"/><rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" fill="none"/></svg> Tableau de bord</a>
+      <a href="#" class="dropdown-link" data-page="my-tontines"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg> Mes Tontines</a>
+      <a href="#" class="dropdown-link" data-page="transactions"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg> Transactions</a>
+      <a href="#" class="dropdown-link" data-page="audit-log"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" fill="none"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" fill="none"/><line x1="16" y1="13" x2="8" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="17" x2="8" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Journal d'audit</a>
+      <a href="#" class="dropdown-link" data-page="invite"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="8.5" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/><line x1="20" y1="8" x2="20" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="23" y1="11" x2="17" y2="11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Inviter</a>
+      <div class="dropdown-divider"></div>
+      <a href="#" class="dropdown-link" data-page="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="2" fill="none"/></svg> Paramètres</a>
+      <a href="#" class="dropdown-link danger" id="btn-logout"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Déconnexion</a>
+    </nav>
+  </div>
+  <div class="dropdown-overlay hidden" id="dropdown-overlay"></div>
+
+  <!-- ═══════════════════════ PAGES ═══════════════════════ -->
+  <main class="main-content" id="main-content">
+
+    <!-- ── PAGE: AUTH ── -->
+    <section class="page active" id="page-auth">
+      <div class="auth-container">
+        <div class="auth-logo">
+          <div class="auth-icon">
+            <svg viewBox="0 0 64 64" fill="none"><circle cx="32" cy="20" r="12" stroke="currentColor" stroke-width="3"/><circle cx="14" cy="44" r="9" stroke="currentColor" stroke-width="3"/><circle cx="50" cy="44" r="9" stroke="currentColor" stroke-width="3"/><line x1="22" y1="26" x2="18" y2="36" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><line x1="42" y1="26" x2="46" y2="36" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><line x1="23" y1="44" x2="41" y2="44" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+          </div>
+          <h1>Tontines<span>Facile</span></h1>
+          <p>La transparence au cœur de votre épargne</p>
+        </div>
+
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-tab="login">Connexion</button>
+          <button class="auth-tab" data-tab="register">Inscription</button>
+        </div>
+
+        <!-- Login Form -->
+        <div class="auth-form active" id="form-login">
+          <div class="form-group">
+            <label class="form-label">Email ou téléphone</label>
+            <input type="text" class="form-input" id="login-email" placeholder="vous@exemple.com" autocomplete="username"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mot de passe</label>
+            <div class="input-password">
+              <input type="password" class="form-input" id="login-password" placeholder="••••••••" autocomplete="current-password"/>
+              <button class="btn-eye" data-target="login-password" type="button">
+                <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+              </button>
+            </div>
+          </div>
+          <a href="#" class="auth-forgot">Mot de passe oublié ?</a>
+          <button class="btn-primary btn-full" id="btn-login">Se connecter</button>
+          <div class="auth-divider"><span>ou</span></div>
+          <button class="btn-ghost btn-full" id="btn-demo">Essayer en démo</button>
+        </div>
+
+        <!-- Register Form -->
+        <div class="auth-form" id="form-register">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Prénom</label>
+              <input type="text" class="form-input" id="reg-firstname" placeholder="Jean" autocomplete="given-name"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Nom</label>
+              <input type="text" class="form-input" id="reg-lastname" placeholder="Dupont" autocomplete="family-name"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-input" id="reg-email" placeholder="vous@exemple.com" autocomplete="email"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Téléphone</label>
+            <input type="tel" class="form-input" id="reg-phone" placeholder="+225 07 00 00 00 00" autocomplete="tel"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mot de passe</label>
+            <div class="input-password">
+              <input type="password" class="form-input" id="reg-password" placeholder="Min. 8 caractères" autocomplete="new-password"/>
+              <button class="btn-eye" data-target="reg-password" type="button">
+                <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+              </button>
+            </div>
+            <div class="password-strength" id="password-strength"></div>
+          </div>
+          <button class="btn-primary btn-full" id="btn-register">Créer mon compte</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: DASHBOARD ── -->
+    <section class="page" id="page-dashboard">
+      <div class="page-content">
+        <!-- Greeting -->
+        <div class="greeting-card">
+          <div class="greeting-text">
+            <p class="greeting-sub">Bonjour 👋</p>
+            <h2 class="greeting-name" id="greeting-name">Jean</h2>
+            <p class="greeting-hint">Voici un aperçu de vos tontines</p>
+          </div>
+          <div class="greeting-avatar">
+            <div class="avatar-lg" id="dashboard-avatar">JD</div>
+          </div>
+        </div>
+
+        <!-- Stats Row -->
+        <div class="stats-grid">
+          <div class="stat-card accent">
+            <div class="stat-icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></div>
+            <div class="stat-info">
+              <p class="stat-label">Tontines actives</p>
+              <p class="stat-value" id="stat-active">0</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon gold"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg></div>
+            <div class="stat-info">
+              <p class="stat-label">Épargne totale</p>
+              <p class="stat-value" id="stat-savings">0 F</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon green"><svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="17 6 23 6 23 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></div>
+            <div class="stat-info">
+              <p class="stat-label">Prochaine mise</p>
+              <p class="stat-value" id="stat-next">—</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon purple"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg></div>
+            <div class="stat-info">
+              <p class="stat-label">Membres totaux</p>
+              <p class="stat-value" id="stat-members">0</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- My Tontines Quick List -->
+        <div class="section-header">
+          <h3>Mes tontines</h3>
+          <a href="#" class="section-link" data-page="my-tontines">Voir tout</a>
+        </div>
+        <div class="tontines-list" id="dashboard-tontines-list">
+          <div class="empty-state">
+            <svg viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2" opacity="0.3"/><path d="M22 32h20M32 22v20" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+            <p>Aucune tontine pour l'instant</p>
+            <button class="btn-primary btn-sm" data-page="create-tontine">Créer une tontine</button>
+          </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="section-header">
+          <h3>Activité récente</h3>
+          <a href="#" class="section-link" data-page="audit-log">Journal complet</a>
+        </div>
+        <div class="activity-list" id="dashboard-activity-list">
+          <div class="empty-state small">
+            <p>Aucune activité récente</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: MY TONTINES ── -->
+    <section class="page" id="page-my-tontines">
+      <div class="page-content">
+        <div class="search-bar">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2" fill="none"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="text" placeholder="Rechercher une tontine..." id="search-tontines" />
+        </div>
+        <div class="filter-chips">
+          <button class="chip active" data-filter="all">Toutes</button>
+          <button class="chip" data-filter="admin">Admin</button>
+          <button class="chip" data-filter="member">Membre</button>
+          <button class="chip" data-filter="pending">En attente</button>
+        </div>
+        <div class="tontines-list full" id="my-tontines-list">
+          <div class="empty-state">
+            <svg viewBox="0 0 64 64" fill="none"><path d="M32 8L8 20v24l24 12 24-12V20L32 8z" stroke="currentColor" stroke-width="2" fill="none" opacity="0.3"/></svg>
+            <p>Vous n'avez pas encore de tontines</p>
+            <button class="btn-primary btn-sm" data-page="create-tontine">Créer ma première tontine</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: TONTINE DETAIL ── -->
+    <section class="page" id="page-tontine-detail">
+      <div class="page-content">
+        <div class="tontine-header-card" id="detail-header">
+          <div class="tontine-title-row">
+            <div>
+              <h2 id="detail-name">Nom de la tontine</h2>
+              <span class="badge" id="detail-badge">Actif</span>
+            </div>
+            <div class="tontine-actions" id="detail-admin-actions"></div>
+          </div>
+          <p class="tontine-desc" id="detail-desc"></p>
+          <div class="tontine-meta-grid">
+            <div class="meta-item"><span class="meta-label">Mise</span><span class="meta-value" id="detail-amount"></span></div>
+            <div class="meta-item"><span class="meta-label">Fréquence</span><span class="meta-value" id="detail-freq"></span></div>
+            <div class="meta-item"><span class="meta-label">Membres</span><span class="meta-value" id="detail-members-count"></span></div>
+            <div class="meta-item"><span class="meta-label">Cagnotte</span><span class="meta-value" id="detail-pot"></span></div>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tab-bar">
+          <button class="tab active" data-tab="overview">Vue d'ensemble</button>
+          <button class="tab" data-tab="members">Membres</button>
+          <button class="tab" data-tab="payments">Paiements</button>
+          <button class="tab" data-tab="log">Journal</button>
+        </div>
+
+        <div class="tab-content active" id="tab-overview">
+          <div class="progress-section">
+            <div class="progress-header">
+              <span>Tour actuel</span>
+              <span id="detail-tour">Tour 1/12</span>
+            </div>
+            <div class="progress-bar-wrap"><div class="progress-bar" id="detail-progress" style="width:0%"></div></div>
+          </div>
+          <div class="next-payment-card">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="3" y1="10" x2="21" y2="10" stroke="currentColor" stroke-width="2"/></svg>
+            <div>
+              <p class="npc-label">Prochain versement</p>
+              <p class="npc-date" id="detail-next-date">—</p>
+            </div>
+            <div class="npc-amount" id="detail-next-amount"></div>
+          </div>
+          <div class="beneficiary-card" id="detail-beneficiary-card">
+            <p class="bc-label">Bénéficiaire du tour</p>
+            <div class="bc-user">
+              <div class="avatar-sm" id="bc-avatar">?</div>
+              <div>
+                <p class="bc-name" id="bc-name">—</p>
+                <p class="bc-status" id="bc-status"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-members">
+          <div class="members-list" id="detail-members-list"></div>
+          <button class="btn-ghost btn-full mt" id="btn-invite-member">
+            <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            Inviter un membre
+          </button>
+        </div>
+
+        <div class="tab-content" id="tab-payments">
+          <div class="payment-matrix" id="detail-payment-matrix"></div>
+        </div>
+
+        <div class="tab-content" id="tab-log">
+          <div class="log-list" id="detail-log-list"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── PAGE: CREATE TONTINE ── -->
+    <section class="page" id="page-create-tontine">
+      <div class="page-content">
+        <div class="form-card">
+          <div class="form-section-title">
+            <div class="form-step-dot">1</div>
+            <h3>Informations générales</h3>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nom de la tontine *</label>
+            <input type="text" class="form-input" id="create-name" placeholder="Ex: Tontine Famille Koffi" maxlength="60"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea class="form-input form-textarea" id="create-desc" placeholder="Objectif, règles, informations importantes..." rows="3"></textarea>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-section-title">
+            <div class="form-step-dot">2</div>
+            <h3>Paramètres financiers</h3>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Montant de la mise *</label>
+            <div class="input-prefix">
+              <span>FCFA</span>
+              <input type="number" class="form-input" id="create-amount" placeholder="5000" min="1000" step="500"/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Fréquence des versements *</label>
+            <div class="select-wrap">
+              <select class="form-input form-select" id="create-frequency">
+                <option value="weekly">Hebdomadaire</option>
+                <option value="biweekly">Bi-mensuel (toutes les 2 semaines)</option>
+                <option value="monthly" selected>Mensuel</option>
+                <option value="quarterly">Trimestriel</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Nombre de membres max</label>
+              <input type="number" class="form-input" id="create-max-members" placeholder="10" min="2" max="50"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Date de début</label>
+              <input type="date" class="form-input" id="create-start-date"/>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-section-title">
+            <div class="form-step-dot">3</div>
+            <h3>Règles & transparence</h3>
+          </div>
+          <div class="toggle-list">
+            <div class="toggle-item">
+              <div>
+                <p class="toggle-label">Approbation des membres</p>
+                <p class="toggle-hint">Valider manuellement chaque demande d'adhésion</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="create-approval" checked/><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-item">
+              <div>
+                <p class="toggle-label">Journal public</p>
+                <p class="toggle-hint">Toutes les actions visibles par les membres</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="create-public-log" checked/><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-item">
+              <div>
+                <p class="toggle-label">Ordre aléatoire</p>
+                <p class="toggle-hint">L'ordre des bénéficiaires sera tiré au sort</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="create-random-order"/><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-item">
+              <div>
+                <p class="toggle-label">Pénalités de retard</p>
+                <p class="toggle-hint">Appliquer une pénalité pour les paiements tardifs</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="create-penalties"/><span class="toggle-slider"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn-primary btn-full" id="btn-create-tontine">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="12" y1="8" x2="12" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Créer la tontine
+        </button>
+      </div>
+    </section>
+
+    <!-- ── PAGE: JOIN TONTINE ── -->
+    <section class="page" id="page-join-tontine">
+      <div class="page-content">
+        <div class="join-hero">
+          <svg viewBox="0 0 80 80" fill="none"><circle cx="40" cy="40" r="36" stroke="currentColor" stroke-width="2" opacity="0.15"/><path d="M28 40h24M40 28v24" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+          <h2>Rejoindre une tontine</h2>
+          <p>Entrez le code d'invitation ou scannez le QR code partagé par l'administrateur</p>
+        </div>
+
+        <div class="form-card">
+          <div class="form-group">
+            <label class="form-label">Code d'invitation</label>
+            <div class="code-input-wrap">
+              <input type="text" class="form-input code-input" id="join-code" placeholder="Ex: TF-ABC123" maxlength="12" autocomplete="off" style="text-transform:uppercase;letter-spacing:4px;text-align:center"/>
+            </div>
+          </div>
+          <button class="btn-primary btn-full" id="btn-join-search">Rechercher</button>
+        </div>
+
+        <!-- Tontine Preview (shown after search) -->
+        <div class="tontine-preview hidden" id="join-preview">
+          <div class="preview-card">
+            <div class="preview-icon">
+              <svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="2"/><path d="M17 24l5 5 9-9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <h3 id="preview-name">Tontine Famille</h3>
+            <div class="preview-details">
+              <div class="preview-row"><span>Mise mensuelle</span><strong id="preview-amount">25 000 FCFA</strong></div>
+              <div class="preview-row"><span>Membres</span><strong id="preview-members">8/12</strong></div>
+              <div class="preview-row"><span>Administrateur</span><strong id="preview-admin">Marie K.</strong></div>
+              <div class="preview-row"><span>Début</span><strong id="preview-start">01/02/2025</strong></div>
+            </div>
+            <p class="preview-desc" id="preview-desc"></p>
+            <button class="btn-primary btn-full" id="btn-confirm-join">Envoyer ma demande d'adhésion</button>
+          </div>
+        </div>
+
+        <div class="divider-label">Invitations reçues</div>
+        <div class="invitations-list" id="invitations-list">
+          <div class="empty-state small"><p>Aucune invitation en attente</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: PROFILE ── -->
+    <section class="page" id="page-profile">
+      <div class="page-content">
+        <div class="profile-hero">
+          <div class="profile-avatar-wrap">
+            <div class="avatar-xl" id="profile-avatar">JD</div>
+            <button class="avatar-edit-btn" id="btn-edit-avatar">
+              <svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+            </button>
+          </div>
+          <h2 id="profile-name">Jean Dupont</h2>
+          <p id="profile-email">jean@exemple.com</p>
+          <div class="profile-badges">
+            <span class="badge-role" id="profile-role">Membre</span>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Informations personnelles</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Prénom</label>
+              <input type="text" class="form-input" id="profile-firstname" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Nom</label>
+              <input type="text" class="form-input" id="profile-lastname" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-input" id="profile-email-input" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Téléphone</label>
+            <input type="tel" class="form-input" id="profile-phone" />
+          </div>
+          <button class="btn-primary" id="btn-save-profile">Sauvegarder</button>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Sécurité</h3>
+          <div class="form-group">
+            <label class="form-label">Mot de passe actuel</label>
+            <input type="password" class="form-input" id="current-password" placeholder="••••••••"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nouveau mot de passe</label>
+            <input type="password" class="form-input" id="new-password" placeholder="Min. 8 caractères"/>
+          </div>
+          <button class="btn-outline" id="btn-change-password">Changer le mot de passe</button>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Mon code d'invitation personnel</h3>
+          <div class="invite-code-box">
+            <span id="my-invite-code">TF-JD2025</span>
+            <button class="btn-icon" id="btn-copy-code">
+              <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+            </button>
+          </div>
+          <p class="invite-hint">Partagez ce code pour inviter des amis à rejoindre vos tontines</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: SETTINGS ── -->
+    <section class="page" id="page-settings">
+      <div class="page-content">
+
+        <!-- Appearance -->
+        <div class="form-card">
+          <h3 class="card-title">🎨 Apparence</h3>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <p class="setting-label">Thème de l'application</p>
+            </div>
+          </div>
+          <div class="theme-grid">
+            <button class="theme-btn active" data-theme="emerald">
+              <div class="theme-preview emerald-prev"></div>
+              <span>Émeraude</span>
+            </button>
+            <button class="theme-btn" data-theme="ocean">
+              <div class="theme-preview ocean-prev"></div>
+              <span>Océan</span>
+            </button>
+            <button class="theme-btn" data-theme="sunset">
+              <div class="theme-preview sunset-prev"></div>
+              <span>Coucher de soleil</span>
+            </button>
+            <button class="theme-btn" data-theme="midnight">
+              <div class="theme-preview midnight-prev"></div>
+              <span>Minuit</span>
+            </button>
+            <button class="theme-btn" data-theme="gold">
+              <div class="theme-preview gold-prev"></div>
+              <span>Or</span>
+            </button>
+          </div>
+
+          <div class="setting-item mt">
+            <div class="setting-info">
+              <p class="setting-label">Taille du texte</p>
+              <p class="setting-hint">Aperçu : <span id="font-preview">Texte normal</span></p>
+            </div>
+          </div>
+          <div class="font-size-control">
+            <button class="font-btn" data-size="small">A</button>
+            <div class="font-slider-wrap">
+              <input type="range" class="font-slider" id="font-slider" min="0" max="4" step="1" value="2"/>
+              <div class="font-slider-labels">
+                <span>Petit</span>
+                <span>Moyen</span>
+                <span>Grand</span>
+              </div>
+            </div>
+            <button class="font-btn large" data-size="xlarge">A</button>
+          </div>
+        </div>
+
+        <!-- Notifications -->
+        <div class="form-card">
+          <h3 class="card-title">🔔 Notifications</h3>
+          <div class="toggle-list">
+            <div class="toggle-item">
+              <div>
+                <p class="toggle-label">Rappels de paiement</p>
+                <p class="toggle-hint">3 jours avant la date limite</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="notif-payment" checked/><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-item">
+              <div>
+                <p class="toggle-label">Nouvelles demandes</p>
+                <p class="toggle-hint">Quelqu'un veut rejoindre votre tontine</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="notif-requests" checked/><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-item">
+              <div>
+                <p class="toggle-label">Versements confirmés</p>
+                <p class="toggle-hint">Confirmation de chaque paiement</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="notif-confirmed" checked/><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-item">
+              <div>
+                <p class="toggle-label">Activité du journal</p>
+                <p class="toggle-hint">Actions importantes de l'administrateur</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="notif-audit"/><span class="toggle-slider"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Privacy & Security -->
+        <div class="form-card">
+          <h3 class="card-title">🔒 Confidentialité</h3>
+          <div class="toggle-list">
+            <div class="toggle-item">
+              <div>
+                <p class="toggle-label">Verrouillage par code PIN</p>
+                <p class="toggle-hint">Demander un PIN à chaque ouverture</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="setting-pin"/><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-item">
+              <div>
+                <p class="toggle-label">Masquer les montants</p>
+                <p class="toggle-hint">Afficher *** dans la liste des tontines</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="setting-hide-amounts"/><span class="toggle-slider"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- About -->
+        <div class="form-card">
+          <h3 class="card-title">ℹ️ À propos</h3>
+          <div class="about-list">
+            <div class="about-item"><span>Version</span><span>1.0.0</span></div>
+            <div class="about-item"><span>Développé avec</span><span>❤️ pour l'Afrique</span></div>
+            <a href="#" class="about-link">Conditions d'utilisation</a>
+            <a href="#" class="about-link">Politique de confidentialité</a>
+            <a href="#" class="about-link">Aide & Support</a>
+          </div>
+        </div>
+
+        <button class="btn-danger btn-full" id="btn-logout-settings">
+          <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          Se déconnecter
+        </button>
+      </div>
+    </section>
+
+    <!-- ── PAGE: TRANSACTIONS ── -->
+    <section class="page" id="page-transactions">
+      <div class="page-content">
+        <div class="filter-chips">
+          <button class="chip active" data-filter="all">Toutes</button>
+          <button class="chip" data-filter="paid">Payées</button>
+          <button class="chip" data-filter="pending">En attente</button>
+          <button class="chip" data-filter="received">Reçues</button>
+        </div>
+        <div class="transactions-list" id="transactions-list">
+          <div class="empty-state"><p>Aucune transaction</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: AUDIT LOG ── -->
+    <section class="page" id="page-audit-log">
+      <div class="page-content">
+        <div class="audit-info-banner">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="16" x2="12.01" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <p>Toutes les actions sont enregistrées et immuables. Aucune modification n'est possible après enregistrement.</p>
+        </div>
+        <div class="log-list full" id="audit-log-list">
+          <div class="empty-state"><p>Aucune entrée dans le journal</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: INVITE ── -->
+    <section class="page" id="page-invite">
+      <div class="page-content">
+        <div class="invite-hero">
+          <svg viewBox="0 0 80 80" fill="none"><circle cx="40" cy="40" r="36" stroke="currentColor" stroke-width="1.5" opacity="0.2"/><circle cx="40" cy="26" r="10" stroke="currentColor" stroke-width="2"/><circle cx="20" cy="55" r="8" stroke="currentColor" stroke-width="2"/><circle cx="60" cy="55" r="8" stroke="currentColor" stroke-width="2"/><line x1="30" y1="34" x2="24" y2="48" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="50" y1="34" x2="56" y2="48" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="28" y1="55" x2="52" y2="55" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="72" y1="30" x2="72" y2="42" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="66" y1="36" x2="78" y2="36" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+          <h2>Inviter des amis</h2>
+          <p>Partagez vos tontines et agrandissez votre communauté d'épargne</p>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Inviter par email</h3>
+          <div class="form-group">
+            <label class="form-label">Sélectionner une tontine</label>
+            <div class="select-wrap">
+              <select class="form-input form-select" id="invite-tontine-select">
+                <option value="">-- Choisir une tontine --</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email(s) de l'invité</label>
+            <input type="email" class="form-input" id="invite-email" placeholder="ami@exemple.com"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Message personnalisé (optionnel)</label>
+            <textarea class="form-input form-textarea" id="invite-message" rows="2" placeholder="Rejoins notre tontine, c'est super !"></textarea>
+          </div>
+          <button class="btn-primary btn-full" id="btn-send-invite">Envoyer l'invitation</button>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Partager le lien</h3>
+          <div class="share-options">
+            <button class="share-btn" data-channel="whatsapp">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg>
+              WhatsApp
+            </button>
+            <button class="share-btn" data-channel="sms">
+              <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+              SMS
+            </button>
+            <button class="share-btn" data-channel="copy">
+              <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+              Copier
+            </button>
+          </div>
+          <div class="share-link-box">
+            <span id="share-link">https://tontinesfacile.app/join/TF-ABC123</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── BOTTOM NAV ── -->
+  <nav class="bottom-nav" id="bottom-nav">
+    <button class="nav-item" data-page="my-tontines">
+      <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg></div>
+      <span>Mes Tontines</span>
+    </button>
+    <button class="nav-item" data-page="create-tontine">
+      <div class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="12" y1="8" x2="12" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+      <span>Créer</span>
+    </button>
+    <button class="nav-item nav-center" data-page="dashboard">
+      <div class="nav-center-btn">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" fill="none"/><rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" fill="none"/><rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" fill="none"/><rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+      </div>
+      <span>Accueil</span>
+    </button>
+    <button class="nav-item" data-page="join-tontine">
+      <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></div>
+      <span>Rejoindre</span>
+    </button>
+    <button class="nav-item" data-page="profile">
+      <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
+      <span>Profil</span>
+    </button>
+  </nav>
+
+</div>
+
+<!-- ═══════════════════════════════ MODALS ═══════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-overlay">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <h3 class="modal-title" id="modal-title">Titre</h3>
+      <button class="btn-icon modal-close" id="modal-close">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+
+<!-- ─ TOAST ─ -->
+<div class="toast-container" id="toast-container"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
