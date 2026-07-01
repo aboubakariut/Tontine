@@ -8,7 +8,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Tontines Facile" />
-  <link rel="manifest" href="#" id="manifest-link" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="32x32"  href="/icons/icon-96.png" />
+  <link rel="manifest" href="/manifest.json" id="manifest-link" />
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -799,9 +802,13 @@
   </div>
 </div>
 
+<!-- ─ PWA INSTALL BTN ─ -->
+<button id="pwa-install-btn" aria-label="Installer l'application">📲 Installer l'app</button>
+
 <!-- ─ TOAST ─ -->
 <div class="toast-container" id="toast-container"></div>
 
 <script src="app.js"></script>
+<script src="improvements.js"></script>
 </body>
 </html>
