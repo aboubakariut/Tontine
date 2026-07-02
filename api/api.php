@@ -6,18 +6,28 @@
 
 declare(strict_types=1);
 
-/* ─── CONFIGURATION ─── */
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'tontines_facile');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_CHARSET', 'utf8mb4');
-define('JWT_SECRET', 'TontinesFacile_S3cr3t_K3y_2025!');
-define('APP_VERSION', '1.0.0');
-define('APP_URL',     'https://votre-domaine.com'); // ← Modifier
-define('VAPID_PUBLIC_KEY', '');  // Clé VAPID pour push notifications
+/* ─── CONFIGURATION (variables d'environnement Vercel / .env) ─── */
+function env(string $key, string $default = ''): string {
+    return $_ENV[$key] ?? getenv($key) ?: $default;
+}
+
+define('DB_HOST',          env('DB_HOST',    'localhost'));
+define('DB_PORT',          env('DB_PORT',    '3306'));
+define('DB_NAME',          env('DB_NAME',    'tontines_facile'));
+define('DB_USER',          env('DB_USER',    'root'));
+define('DB_PASS',          env('DB_PASS',    ''));
+define('DB_CHARSET',       env('DB_CHARSET', 'utf8mb4'));
+define('DB_SSL',           env('DB_HOST',    'localhost') !== 'localhost'); // SSL auto si distant
+define('JWT_SECRET',       env('JWT_SECRET', 'change-this-secret-in-production'));
+define('APP_VERSION',      '1.0.0');
+define('APP_URL',          env('APP_URL',    'http://localhost'));
+define('VAPID_PUBLIC_KEY', env('VAPID_PUBLIC_KEY', ''));
+define('SMTP_HOST',        env('SMTP_HOST',  ''));
+define('SMTP_PORT',        (int) env('SMTP_PORT', '587'));
+define('SMTP_USER',        env('SMTP_USER',  ''));
+define('SMTP_PASS',        env('SMTP_PASS',  ''));
 define('MAX_LOGIN_ATTEMPTS', 5);
-define('TOKEN_EXPIRY', 86400 * 7); // 7 jours
+define('TOKEN_EXPIRY',     86400 * 7); // 7 jours
 
 /* ─── HEADERS ─── */
 header('Content-Type: application/json; charset=utf-8');
@@ -44,9 +54,28 @@ function success($data = null, string $msg = ''): void { respond(true, $data, $m
 /* ─── INPUT ─── */
 $raw   = file_get_contents('php://input');
 $input = json_decode($raw, true) ?? [];
-$action = trim($input['action'] ?? $_GET['action'] ?? '');
 
-if (!$action) error('Action manquante', 400);
+/* Lire l'action depuis : POST JSON > GET param > query string parsée */
+$action = trim($input['action'] ?? '');
+if (!$action) {
+    /* Vercel peut ne pas peupler $_GET correctement — on parse manuellement */
+    $qs = $_SERVER['QUERY_STRING'] ?? '';
+    parse_str($qs, $qsParams);
+    $action = trim($_GET['action'] ?? $qsParams['action'] ?? $_REQUEST['action'] ?? '');
+}
+
+/* Health check rapide sans action (simple GET sur api.php) */
+if (!$action && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    success([
+        'status'   => 'ok',
+        'version'  => APP_VERSION,
+        'db'       => 'not_tested',
+        'hint'     => 'Ajouter ?action=health pour tester la BD',
+        'datetime' => date('Y-m-d H:i:s'),
+    ]);
+}
+
+if (!$action) error('Action manquante — envoyez {action:"..."} en POST JSON ou ?action=... en GET', 400);
 
 /* ══════════════════════════════════════════════════════════════════
    DATABASE
@@ -57,12 +86,22 @@ class DB {
     public static function get(): PDO {
         if (self::$pdo) return self::$pdo;
         try {
-            $dsn = 'mysql:host='.DB_HOST.';dbname='.DB_NAME.';charset='.DB_CHARSET;
-            self::$pdo = new PDO($dsn, DB_USER, DB_PASS, [
+            $port = (DB_PORT && DB_PORT !== '3306') ? ';port='.DB_PORT : '';
+            $dsn  = 'mysql:host='.DB_HOST.';dbname='.DB_NAME.';charset='.DB_CHARSET.$port;
+            $opts = [
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES   => false,
-            ]);
+            ];
+            /* SSL pour PlanetScale / bases distantes */
+            if (DB_SSL) {
+                $opts[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
+                $caCert = '/etc/ssl/certs/ca-certificates.crt';
+                if (file_exists($caCert)) {
+                    $opts[PDO::MYSQL_ATTR_SSL_CA] = $caCert;
+                }
+            }
+            self::$pdo = new PDO($dsn, DB_USER, DB_PASS, $opts);
             self::migrate();
         } catch (PDOException $e) {
             error('Connexion DB échouée : ' . $e->getMessage(), 500);
