@@ -113,11 +113,12 @@ const API = {
 
   demoFallback(action, data) {
     switch (action) {
-      case 'login':
-      case 'demo':
-        return { success: true, user: App.demoData.user, token: 'demo-token-123' };
-      case 'register':
-        return { success: true, user: { ...data, id: Date.now(), inviteCode: 'TF-' + data.firstname.slice(0,2).toUpperCase() + '2025', avatar: (data.firstname[0]+data.lastname[0]).toUpperCase() }, token: 'demo-token-123' };
+          case 'demo':
+  return { success: true, user: App.demoData.user, token: 'demo-token-123' };
+case 'login':
+  return { success: false, message: 'Serveur inaccessible. Vérifiez votre connexion.' };
+case 'register':
+  return { success: false, message: 'Serveur inaccessible. Vérifiez votre connexion.' };
       case 'getTontines':
         return { success: true, data: App.demoData.tontines };
       case 'getTransactions':
