@@ -1091,7 +1091,7 @@ try {
                     [$user['id'], $token, $expires]);
 
                 /* Envoi email */
-                require_once __DIR__ . '/mailer.php';
+                require_once __DIR__ . '/Mailer.php';
                 Mailer::sendPasswordReset($email, $user['firstname'], $token);
                 audit('security', 'Demande réinitialisation', "Email: $email", $user['id']);
             }
@@ -1242,7 +1242,7 @@ try {
             );
 
             /* Envoi email réel */
-            require_once __DIR__ . '/mailer.php';
+            require_once __DIR__ . '/Mailer.php';
             $freqMap = ['weekly'=>'Hebdomadaire','biweekly'=>'Bi-mensuel','monthly'=>'Mensuel','quarterly'=>'Trimestriel'];
             $inviteUrl = APP_URL . "/index.html?action=invite&token=$token";
             Mailer::sendInvitation(
@@ -1275,7 +1275,7 @@ try {
                 [$tid, $tid, $t['current_tour']]
             );
 
-            require_once __DIR__ . '/mailer.php';
+            require_once __DIR__ . '/Mailer.php';
             foreach ($unpaid as $m) {
                 notify($m['id'], 'payment_reminder', 'Rappel de paiement',
                     'Votre mise de ' . number_format((float)$t['amount'], 0, ',', ' ') . ' FCFA est attendue.', $tid);
