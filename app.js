@@ -285,16 +285,25 @@ const Auth = {
   },
 
   onLogin(res) {
+    /* Effacer toute ancienne session avant d'en démarrer une nouvelle */
+    Storage.remove('user');
+    Storage.remove('token');
+    App.currentUser = null;
+
     App.currentUser = res.user;
     App.token = res.token;
     Storage.save('user', res.user);
     Storage.save('token', res.token);
-    UI.updateUserInfo();
+
+    /* Petit délai pour s'assurer que le DOM est prêt */
+    setTimeout(() => {
+      UI.updateUserInfo();
+    }, 100);
+
     Dashboard.load();
     Nav.go('dashboard');
-    Toast.show(`Bienvenue, ${res.user.firstname} ! 👋`, 'success');
+    Toast.show(`Bienvenue, ${res.user.firstname || res.user.email} ! 👋`, 'success');
   },
-
   logout() {
     App.currentUser = null;
     App.token = null;
@@ -1004,13 +1013,25 @@ const UI = {
   updateUserInfo() {
     const u = App.currentUser;
     if (!u) return;
-    const initials = u.avatar || ((u.firstname?.[0] || '') + (u.lastname?.[0] || '')).toUpperCase();
-    document.getElementById('greeting-name').textContent = u.firstname || 'Utilisateur';
-    document.getElementById('dashboard-avatar').textContent = initials;
-    document.getElementById('dropdown-avatar').textContent = initials;
-    document.getElementById('dropdown-name').textContent = `${u.firstname} ${u.lastname}`;
-    document.getElementById('dropdown-email').textContent = u.email;
-    Profile.load();
+
+    /* Normaliser les champs (API peut retourner first_name ou firstname) */
+    const firstname = u.firstname || u.first_name || '';
+    const lastname  = u.lastname  || u.last_name  || '';
+    const email     = u.email || '';
+    const initials  = u.avatar && u.avatar.length <= 4
+      ? u.avatar
+      : ((firstname[0] || '') + (lastname[0] || '')).toUpperCase() || '?';
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+    set('greeting-name',   firstname || 'Utilisateur');
+    set('dashboard-avatar', initials);
+    set('dropdown-avatar',  initials);
+    set('dropdown-name',   `${firstname} ${lastname}`.trim());
+    set('dropdown-email',  email);
+
+    /* Mettre à jour le profil si on est sur cette page */
+    if (typeof Profile !== 'undefined') Profile.load();
   }
 };
 
