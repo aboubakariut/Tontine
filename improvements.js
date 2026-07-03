@@ -1145,17 +1145,28 @@ document.addEventListener('DOMContentLoaded', () => {
   /* I18n */
   I18n.init();
 
-  /* Patch logout buttons → confirmation */
+  /* Patch logout buttons → confirmation simple */
   const patchLogout = () => {
     ['btn-logout', 'btn-logout-settings'].forEach(id => {
-      const btn = document.getElementById(id);
-      if (btn) {
-        btn.replaceWith(btn.cloneNode(true)); // Remove old listener
-        document.getElementById(id)?.addEventListener('click', (e) => {
-          e.preventDefault(); e.stopPropagation();
-          SafeLogout.confirm();
-        });
-      }
+      const el = document.getElementById(id);
+      if (!el) return;
+      const newEl = el.cloneNode(true);
+      el.parentNode.replaceChild(newEl, el);
+      document.getElementById(id)?.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (window.confirm('Se déconnecter de Tontines Facile ?')) {
+          App.currentUser = null;
+          App.token = null;
+          try {
+            localStorage.removeItem('tf_user');
+            localStorage.removeItem('tf_token');
+          } catch(err) {}
+          Nav.history = [];
+          if (typeof RealtimeNotifications !== 'undefined') RealtimeNotifications.disconnect();
+          Nav.go('auth');
+          Toast.show('Vous avez été déconnecté', 'warning');
+        }
+      });
     });
   };
 
