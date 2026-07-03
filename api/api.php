@@ -17,7 +17,7 @@ define('DB_NAME',          env('DB_NAME',    'tontines_facile'));
 define('DB_USER',          env('DB_USER',    'root'));
 define('DB_PASS',          env('DB_PASS',    ''));
 define('DB_CHARSET',       env('DB_CHARSET', 'utf8mb4'));
-define('DB_SSL',           env('DB_HOST',    'localhost') !== 'localhost'); // SSL auto si distant
+define('DB_SSL',           env('DB_HOST', 'localhost') !== 'localhost');
 define('JWT_SECRET',       env('JWT_SECRET', 'change-this-secret-in-production'));
 define('APP_VERSION',      '1.0.0');
 define('APP_URL',          env('APP_URL',    'http://localhost'));
@@ -86,19 +86,18 @@ class DB {
     public static function get(): PDO {
         if (self::$pdo) return self::$pdo;
         try {
-            $port = (DB_PORT && DB_PORT !== '3306') ? ';port='.DB_PORT : '';
-            $dsn  = 'mysql:host='.DB_HOST.';dbname='.DB_NAME.';charset='.DB_CHARSET.$port;
+            $portStr = DB_PORT ? ';port='.DB_PORT : '';
+            $dsn  = 'mysql:host='.DB_HOST.';dbname='.DB_NAME.';charset='.DB_CHARSET.$portStr;
             $opts = [
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES   => false,
             ];
-            /* SSL pour PlanetScale / bases distantes */
+            /* SSL pour TiDB Cloud (obligatoire) */
             if (DB_SSL) {
                 $opts[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
-                $caCert = '/etc/ssl/certs/ca-certificates.crt';
-                if (file_exists($caCert)) {
-                    $opts[PDO::MYSQL_ATTR_SSL_CA] = $caCert;
+                foreach (['/etc/ssl/certs/ca-certificates.crt', '/etc/ssl/cert.pem', '/etc/pki/tls/certs/ca-bundle.crt'] as $ca) {
+                    if (file_exists($ca)) { $opts[PDO::MYSQL_ATTR_SSL_CA] = $ca; break; }
                 }
             }
             self::$pdo = new PDO($dsn, DB_USER, DB_PASS, $opts);
@@ -1357,6 +1356,22 @@ try {
                 'php_version' => PHP_VERSION,
                 'features'    => ['push','email','audit','csrf','rate_limit'],
             ]);
+        }
+
+
+        /* ────────────────────────────────────
+           TONTINES: FERMER (admin)
+           ──────────────────────────────────── */
+        case 'closeTontine': {
+            $tid  = (int)($input['tontineId'] ?? 0);
+            $user = Auth::requireAdmin($input, $tid);
+            if (!$tid) error('ID tontine manquant.');
+            $t = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
+            if (!$t) error('Tontine introuvable.');
+            if ($t['status'] === 'closed') error('Cette tontine est déjà fermée.');
+            DB::q("UPDATE tontines SET status = 'closed' WHERE id = ?", [$tid]);
+            audit('admin', 'Tontine fermée', "Tontine #{$tid} — {$t['name']}", $user['id'], $tid);
+            success(null, 'Tontine fermée avec succès.');
         }
 
         default:
