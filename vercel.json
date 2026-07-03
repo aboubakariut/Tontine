@@ -2,14 +2,13 @@
   "version": 2,
   "functions": {
     "api/api.php": {
-      "runtime": "vercel-php@0.6.0"
+      "runtime": "vercel-php@0.7.2"
     }
   },
   "routes": [
     { "src": "/api\\.php(.*)", "dest": "/api/api.php" },
     { "src": "/api/api\\.php(.*)", "dest": "/api/api.php" },
     { "src": "/sw\\.js", "dest": "/sw.js", "headers": { "Service-Worker-Allowed": "/", "Cache-Control": "no-cache" } },
-    { "src": "/manifest\\.json", "dest": "/manifest.json" },
     { "src": "/style\\.css", "dest": "/style.css" },
     { "src": "/app\\.js", "dest": "/app.js" },
     { "src": "/improvements\\.js", "dest": "/improvements.js" },
