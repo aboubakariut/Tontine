@@ -1,12 +1,6 @@
 {
     "name": "aboubakariut/tontine",
-    "description": "Application de gestion de tontine",
-    "type": "project",
-    "license": "MIT",
     "require": {
         "php": "^8.0"
-    },
-    "config": {
-        "vendor-dir": "vendor"
     }
 }
