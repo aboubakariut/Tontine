@@ -507,16 +507,45 @@ const TontineDetail = {
     }
   },
 
-  openSettings() {
+  async openSettings() {
+    const t = App.currentTontine;
     Modal.open('Paramètres de la tontine', `
-      <div class="form-group"><label class="form-label">Code d'invitation</label>
-        <div class="invite-code-box"><span>${App.currentTontine.inviteCode}</span><button class="btn-icon" onclick="UI.copyText('${App.currentTontine.inviteCode}')"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg></button></div>
+      <div class="form-group">
+        <label class="form-label">Code d'invitation</label>
+        <div class="invite-code-box">
+          <span>${t.inviteCode || t.invite_code || '—'}</span>
+          <button class="btn-icon" onclick="UI.copyText('${t.inviteCode || t.invite_code}')">
+            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+          </button>
+        </div>
       </div>
-      <div class="form-group"><label class="form-label">Clôturer la tontine</label>
-        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-bottom:8px">Attention : cette action est irréversible.</p>
-        <button class="btn-danger btn-full" onclick="Modal.close()">Fermer la tontine</button>
+      <div class="form-group">
+        <label class="form-label">Statut de la tontine</label>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-bottom:8px">
+          Statut actuel : <strong>${t.status || t.badgeText || 'Actif'}</strong>
+        </p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="color:var(--color-red)">Zone de danger</label>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-bottom:8px">
+          ⚠️ Fermer une tontine est irréversible. Tous les membres seront notifiés.
+        </p>
+        <button class="btn-danger btn-full" id="btn-close-tontine">🔒 Fermer définitivement la tontine</button>
       </div>
     `);
+
+    document.getElementById('btn-close-tontine')?.addEventListener('click', async () => {
+      if (!confirm('Êtes-vous sûr de vouloir fermer cette tontine ? Cette action est irréversible.')) return;
+      const res = await API.request('closeTontine', { tontineId: t.id });
+      if (res.success) {
+        Toast.show('Tontine fermée avec succès.', 'success');
+        Modal.close();
+        await Dashboard.load();
+        Nav.go('my-tontines');
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
+      }
+    });
   }
 };
 
@@ -1237,12 +1266,13 @@ Auth.init = function() {
   }
 };
 
-/* Override Auth.logout → passe par SafeLogout */
+/* Override Auth.logout → confirmation simple */
 const _origLogout = Auth.logout.bind(Auth);
 Auth.logout = function(force = false) {
   if (force) { _origLogout(); return; }
-  if (typeof SafeLogout !== 'undefined') { SafeLogout.confirm(); }
-  else { _origLogout(); }
+  if (confirm('Voulez-vous vraiment vous déconnecter ?')) {
+    _origLogout();
+  }
 };
 
 /* Override Dashboard.load pour actualiser le badge notifications */
