@@ -1,17 +1,10 @@
+
 {
   "name": "tontines-facile/api",
-  "description": "Tontines Facile - Backend API",
-  "type": "project",
   "require": {
     "php": ">=8.0"
   },
   "autoload": {
-    "files": [
-      "Mailer.php"
-    ]
-  },
-  "config": {
-    "optimize-autoloader": false,
-    "classmap-authoritative": false
+    "psr-4": {}
   }
 }
