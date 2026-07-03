@@ -112,41 +112,48 @@ const API = {
   },
 
   demoFallback(action, data) {
-    switch (action) {
-          case 'demo':
-  return { success: true, user: App.demoData.user, token: 'demo-token-123' };
-case 'login':
-  return { success: false, message: 'Serveur inaccessible. Vérifiez votre connexion.' };
-case 'register':
-  return { success: false, message: 'Serveur inaccessible. Vérifiez votre connexion.' };
-      case 'getTontines':
-        return { success: true, data: App.demoData.tontines };
-      case 'getTransactions':
-        return { success: true, data: App.demoData.transactions };
-      case 'getGlobalLog':
-        return { success: true, data: App.demoData.globalLog };
-      case 'getInvitations':
-        return { success: true, data: App.demoData.invitations };
-      case 'searchTontine':
-        return { success: true, data: { name: 'Tontine Amis du quartier', amount: 20000, members: '7/10', admin: 'Kofi A.', start: '01/03/2025', desc: 'Tontine de voisinage.' } };
-      case 'createTontine':
-        const newT = { id: Date.now(), ...data, currentMembers: 1, currentTour: 0, totalTours: data.maxMembers || 10, pot: 0, userRole: 'admin', status: 'active', badge: 'badge-active', badgeText: 'Actif', members: [{ ...App.currentUser, role: 'Administrateur', paid: false }], log: [], inviteCode: 'TF-' + Math.random().toString(36).slice(2,8).toUpperCase() };
-        App.demoData.tontines.push(newT);
-        return { success: true, data: newT };
-      case 'joinTontine':
-        return { success: true, message: 'Demande envoyée avec succès !' };
-      case 'recordPayment':
-        return { success: true, message: 'Paiement enregistré !' };
-      case 'sendInvite':
-        return { success: true, message: 'Invitation envoyée !' };
-      case 'updateProfile':
-        return { success: true, message: 'Profil mis à jour !' };
-      default:
-        return { success: false, message: 'Action non reconnue' };
-    }
-  }
-};
+    /* Mode démo uniquement si token démo explicite */
+    const isDemo = App.token === 'demo-token-123';
 
+    switch (action) {
+      case 'demo':
+        return { success: true, user: App.demoData.user, token: 'demo-token-123' };
+      case 'login':
+        return { success: false, message: 'Serveur inaccessible. Vérifiez votre connexion.' };
+      case 'register':
+        return { success: false, message: 'Serveur inaccessible. Vérifiez votre connexion.' };
+      case 'getTontines':
+        return isDemo
+          ? { success: true, data: App.demoData.tontines }
+          : { success: true, data: [] };
+      case 'getTransactions':
+        return isDemo
+          ? { success: true, data: App.demoData.transactions }
+          : { success: true, data: [] };
+      case 'getGlobalLog':
+        return isDemo
+          ? { success: true, data: App.demoData.globalLog }
+          : { success: true, data: [] };
+      case 'getInvitations':
+        return isDemo
+          ? { success: true, data: App.demoData.invitations }
+          : { success: true, data: [] };
+      case 'searchTontine':
+        return { success: false, message: 'Serveur inaccessible.' };
+      case 'createTontine':
+        return { success: false, message: 'Serveur inaccessible.' };
+      case 'joinTontine':
+        return { success: false, message: 'Serveur inaccessible.' };
+      case 'recordPayment':
+        return { success: false, message: 'Serveur inaccessible.' };
+      case 'sendInvite':
+        return { success: false, message: 'Serveur inaccessible.' };
+      case 'updateProfile':
+        return { success: false, message: 'Serveur inaccessible.' };
+      default:
+        return { success: false, message: 'Serveur inaccessible.' };
+    }
+  };
 /* ═══════════════════════════════ NAVIGATION ═══════════════════════════════ */
 const Nav = {
   history: [],
