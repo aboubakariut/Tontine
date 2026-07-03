@@ -1,5 +1,5 @@
 {
-  "name": "tontines-facile/api",
+  "name": "tontine/api",
   "require": {
     "php": ">=8.0"
   },
