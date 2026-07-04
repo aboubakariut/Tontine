@@ -1184,7 +1184,14 @@ function setupEventListeners() {
 }
 
 /* ═══════════════════════════════ INIT ═══════════════════════════════ */
+
 async function init() {
+
+  /* 1. Vérifier la session IMMÉDIATEMENT avant tout */
+  const savedUser  = Storage.load('user');
+  const savedToken = Storage.load('token');
+
+  /* 2. Initialiser l'UI */
   setupPWA();
   setupEventListeners();
   Settings.applyStored();
@@ -1193,29 +1200,31 @@ async function init() {
   Settings.init();
   CreateTontine.init();
   JoinTontine.init();
-  Invite.init();
+  Invite.init(); /* sans await - ne bloque pas */
 
-  /* Attendre le splash */
+  /* 3. Splash screen */
   await new Promise(resolve => setTimeout(resolve, 2200));
-
   const splash = document.getElementById('splash-screen');
-  if (splash) { splash.classList.add('fade-out'); setTimeout(() => splash.classList.add('hidden'), 500); }
+  if (splash) {
+    splash.classList.add('fade-out');
+    setTimeout(() => splash.classList.add('hidden'), 500);
+  }
   document.getElementById('app').classList.remove('hidden');
 
-  /* Vérifier la session sauvegardée */
-  const savedUser  = Storage.load('user');
-  const savedToken = Storage.load('token');
-
+  /* 4. Restaurer la session ou aller au login */
   if (savedUser && savedToken) {
     App.currentUser = savedUser;
     App.token = savedToken;
     UI.updateUserInfo();
-    Dashboard.load();
+    await Dashboard.load();
     Nav.go('dashboard');
   } else {
     Nav.go('auth');
   }
 }
+
+/* Start the app when DOM is ready */
+document.addEventListener('DOMContentLoaded', init);
 
 /* Start the app when DOM is ready 
 document.addEventListener('DOMContentLoaded', init);*/
