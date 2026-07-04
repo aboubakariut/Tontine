@@ -1132,7 +1132,8 @@ function setupEventListeners() {
         /* Load page data on navigate */
         if (page === 'transactions') Transactions.load();
         if (page === 'audit-log') AuditLog.load();
-        if (page === 'profile') Profile.load();
+       if (page === 'profile') Profile.load();
+        if (page === 'invite') Invite.loadTontines();
         Nav.go(page);
       }
     }
