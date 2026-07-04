@@ -891,35 +891,24 @@ const AuditLog = {
 
 /* ═══════════════════════════════ INVITE ═══════════════════════════════ */
 const Invite = {
-  async init() {
-    const res = await API.request('getTontines');
-    const select = document.getElementById('invite-tontine-select');
-    if (res.success) {
-      res.data.filter(t => t.userRole === 'admin').forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t.id;
-        opt.textContent = t.name;
-        select.appendChild(opt);
-      });
-    }
-
+  init() {
     document.getElementById('btn-send-invite').addEventListener('click', async () => {
+      const select = document.getElementById('invite-tontine-select');
       const tontineId = select.value;
       const email = document.getElementById('invite-email').value.trim();
       const message = document.getElementById('invite-message').value.trim();
       if (!tontineId) { Toast.show('Sélectionnez une tontine', 'error'); return; }
       if (!email) { Toast.show('Entrez un email', 'error'); return; }
       UI.setLoading('btn-send-invite', true, 'Envoi...');
-      const res2 = await API.request('sendInvite', { tontineId, email, message });
-      UI.setLoading('btn-send-invite', false, 'Envoyer l\'invitation');
-      if (res2.success) {
+      const res = await API.request('sendInvite', { tontineId, email, message });
+      UI.setLoading('btn-send-invite', false, "Envoyer l'invitation");
+      if (res.success) {
         Toast.show(`Invitation envoyée à ${email} !`, 'success');
         document.getElementById('invite-email').value = '';
         document.getElementById('invite-message').value = '';
       }
     });
 
-    /* Share buttons */
     document.querySelectorAll('.share-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const channel = btn.dataset.channel;
@@ -930,6 +919,21 @@ const Invite = {
         else if (channel === 'sms') { window.open(`sms:?body=${encodeURIComponent(msg)}`); }
       });
     });
+  },
+
+  async loadTontines() {
+    const res = await API.request('getTontines');
+    const select = document.getElementById('invite-tontine-select');
+    if (!select) return;
+    select.innerHTML = '<option value="">-- Choisir une tontine --</option>';
+    if (res.success) {
+      res.data.filter(t => t.userRole === 'admin').forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name;
+        select.appendChild(opt);
+      });
+    }
   }
 };
 
