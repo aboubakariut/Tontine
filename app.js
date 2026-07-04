@@ -1171,36 +1171,53 @@ function setupEventListeners() {
 
 /* ═══════════════════════════════ INIT ═══════════════════════════════ */
 async function init() {
-  setupPWA();
-  setupEventListeners();
-  Settings.applyStored();
-  Auth.init();
-  Profile.init();
-  Settings.init();
-  CreateTontine.init();
-  JoinTontine.init();
-  Invite.init();
+  /* Sécurité : le splash disparaît toujours après 5 secondes max */
+  const forceHide = setTimeout(() => {
+    const s = document.getElementById('splash-screen');
+    if (s) { s.classList.add('fade-out'); setTimeout(() => s.classList.add('hidden'), 500); }
+    const a = document.getElementById('app');
+    if (a) a.classList.remove('hidden');
+    Nav.go('auth');
+  }, 5000);
 
-  /* Check for stored session */
-  const savedUser = Storage.load('user');
-  const savedToken = Storage.load('token');
+  try {
+    setupPWA();
+    setupEventListeners();
+    Settings.applyStored();
+    Auth.init();
+    Profile.init();
+    Settings.init();
+    CreateTontine.init();
+    JoinTontine.init();
+    Invite.init(); /* sans await */
 
-  /* Simulate splash loading */
-  await new Promise(resolve => setTimeout(resolve, 2200));
+    const savedUser = Storage.load('user');
+    const savedToken = Storage.load('token');
 
-  const splash = document.getElementById('splash-screen');
-  splash.classList.add('fade-out');
-  setTimeout(() => splash.classList.add('hidden'), 500);
+    await new Promise(resolve => setTimeout(resolve, 2200));
 
-  document.getElementById('app').classList.remove('hidden');
+    clearTimeout(forceHide);
 
-  if (savedUser && savedToken) {
-    App.currentUser = savedUser;
-    App.token = savedToken;
-    UI.updateUserInfo();
-    await Dashboard.load();
-    Nav.go('dashboard');
-  } else {
+    const splash = document.getElementById('splash-screen');
+    if (splash) { splash.classList.add('fade-out'); setTimeout(() => splash.classList.add('hidden'), 500); }
+    document.getElementById('app').classList.remove('hidden');
+
+    if (savedUser && savedToken) {
+      App.currentUser = savedUser;
+      App.token = savedToken;
+      UI.updateUserInfo();
+      await Dashboard.load();
+      Nav.go('dashboard');
+    } else {
+      Nav.go('auth');
+    }
+
+  } catch (err) {
+    clearTimeout(forceHide);
+    console.error('[Init] Erreur :', err);
+    const s = document.getElementById('splash-screen');
+    if (s) { s.classList.add('fade-out'); setTimeout(() => s.classList.add('hidden'), 500); }
+    document.getElementById('app').classList.remove('hidden');
     Nav.go('auth');
   }
 }
