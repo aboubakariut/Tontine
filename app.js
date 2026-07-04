@@ -701,15 +701,25 @@ const Profile = {
   load() {
     const u = App.currentUser;
     if (!u) return;
-    document.getElementById('profile-avatar').textContent = u.avatar || (u.firstname[0]+u.lastname[0]).toUpperCase();
-    document.getElementById('profile-name').textContent = `${u.firstname} ${u.lastname}`;
-    document.getElementById('profile-email').textContent = u.email;
-    document.getElementById('profile-firstname').value = u.firstname;
-    document.getElementById('profile-lastname').value = u.lastname;
-    document.getElementById('profile-email-input').value = u.email;
-    document.getElementById('profile-phone').value = u.phone || '';
-    document.getElementById('my-invite-code').textContent = u.inviteCode || 'TF-' + (u.firstname.slice(0,2) + u.lastname.slice(0,2)).toUpperCase() + '25';
-    document.getElementById('profile-role').textContent = u.role || 'Membre';
+    const firstname = u.firstname || '';
+    const lastname  = u.lastname  || '';
+    const email     = u.email     || '';
+    const phone     = u.phone     || '';
+    const avatar    = u.avatar    || (firstname[0] + (lastname[0] || '')).toUpperCase() || '?';
+    const inviteCode = u.invite_code || u.inviteCode || 'TF-????';
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+
+    set('profile-avatar',   avatar);
+    set('profile-name',     `${firstname} ${lastname}`.trim());
+    set('profile-email',    email);
+    set('profile-role',     u.role || 'Membre');
+    set('my-invite-code',   inviteCode);
+    setVal('profile-firstname',    firstname);
+    setVal('profile-lastname',     lastname);
+    setVal('profile-email-input',  email);
+    setVal('profile-phone',        phone);
   },
 
   init() {
