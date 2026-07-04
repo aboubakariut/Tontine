@@ -1222,9 +1222,23 @@ async function init() {
   }
 }
 
-/* Start the app when DOM is ready */
-document.addEventListener('DOMContentLoaded', init);
-
+/* Start the app when DOM is ready 
+document.addEventListener('DOMContentLoaded', init);*/
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    init().catch(err => {
+      console.error('Init failed:', err);
+      document.getElementById('splash-screen').style.display = 'none';
+      document.getElementById('app').classList.remove('hidden');
+      Nav.go('auth');
+    });
+  } catch(e) {
+    console.error('Crash:', e);
+    document.getElementById('splash-screen').style.display = 'none';
+    document.getElementById('app').classList.remove('hidden');
+    Nav.go('auth');
+  }
+});
 /* ══════════════════════════════════════════════════════════════════
    APP.JS PATCH — Corrections & améliorations intégrées
    Appliqué après le chargement initial de improvements.js
