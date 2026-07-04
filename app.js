@@ -153,7 +153,10 @@ const API = {
       default:
         return { success: false, message: 'Serveur inaccessible.' };
     }
-  };
+  }
+};
+
+/* ═══════════════════════════════ NAVIGATION ═══════════════════════════════ */
 /* ═══════════════════════════════ NAVIGATION ═══════════════════════════════ */
 const Nav = {
   history: [],
