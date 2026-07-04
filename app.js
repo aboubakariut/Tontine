@@ -308,13 +308,14 @@ const Auth = {
     Toast.show(`Bienvenue, ${res.user.firstname || res.user.email} ! 👋`, 'success');
   },
   logout() {
+    if (!window.confirm('Se déconnecter de Tontines Facile ?')) return;
     App.currentUser = null;
     App.token = null;
     Storage.remove('user');
     Storage.remove('token');
     Nav.history = [];
-    Nav.go('auth');
-    Toast.show('Vous avez été déconnecté', 'warning');
+    /* Forcer le rechargement complet pour nettoyer l'état */
+    window.location.href = '/';
   }
 };
 
@@ -1174,53 +1175,34 @@ function setupEventListeners() {
 
 /* ═══════════════════════════════ INIT ═══════════════════════════════ */
 async function init() {
-  /* Sécurité : le splash disparaît toujours après 5 secondes max */
-  const forceHide = setTimeout(() => {
-    const s = document.getElementById('splash-screen');
-    if (s) { s.classList.add('fade-out'); setTimeout(() => s.classList.add('hidden'), 500); }
-    const a = document.getElementById('app');
-    if (a) a.classList.remove('hidden');
-    Nav.go('auth');
-  }, 5000);
+  setupPWA();
+  setupEventListeners();
+  Settings.applyStored();
+  Auth.init();
+  Profile.init();
+  Settings.init();
+  CreateTontine.init();
+  JoinTontine.init();
+  Invite.init();
 
-  try {
-    setupPWA();
-    setupEventListeners();
-    Settings.applyStored();
-    Auth.init();
-    Profile.init();
-    Settings.init();
-    CreateTontine.init();
-    JoinTontine.init();
-    Invite.init(); /* sans await */
+  /* Attendre le splash */
+  await new Promise(resolve => setTimeout(resolve, 2200));
 
-    const savedUser = Storage.load('user');
-    const savedToken = Storage.load('token');
+  const splash = document.getElementById('splash-screen');
+  if (splash) { splash.classList.add('fade-out'); setTimeout(() => splash.classList.add('hidden'), 500); }
+  document.getElementById('app').classList.remove('hidden');
 
-    await new Promise(resolve => setTimeout(resolve, 2200));
+  /* Vérifier la session sauvegardée */
+  const savedUser  = Storage.load('user');
+  const savedToken = Storage.load('token');
 
-    clearTimeout(forceHide);
-
-    const splash = document.getElementById('splash-screen');
-    if (splash) { splash.classList.add('fade-out'); setTimeout(() => splash.classList.add('hidden'), 500); }
-    document.getElementById('app').classList.remove('hidden');
-
-    if (savedUser && savedToken) {
-      App.currentUser = savedUser;
-      App.token = savedToken;
-      UI.updateUserInfo();
-      await Dashboard.load();
-      Nav.go('dashboard');
-    } else {
-      Nav.go('auth');
-    }
-
-  } catch (err) {
-    clearTimeout(forceHide);
-    console.error('[Init] Erreur :', err);
-    const s = document.getElementById('splash-screen');
-    if (s) { s.classList.add('fade-out'); setTimeout(() => s.classList.add('hidden'), 500); }
-    document.getElementById('app').classList.remove('hidden');
+  if (savedUser && savedToken) {
+    App.currentUser = savedUser;
+    App.token = savedToken;
+    UI.updateUserInfo();
+    Dashboard.load();
+    Nav.go('dashboard');
+  } else {
     Nav.go('auth');
   }
 }
