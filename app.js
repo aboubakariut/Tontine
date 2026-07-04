@@ -1179,7 +1179,7 @@ async function init() {
   Settings.init();
   CreateTontine.init();
   JoinTontine.init();
-  await Invite.init();
+  Invite.init();
 
   /* Check for stored session */
   const savedUser = Storage.load('user');
