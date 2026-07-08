@@ -18,6 +18,12 @@ define('MAIL_REPLY_TO',  env('MAIL_REPLY_TO', 'support@tontinesfacile.app'));
 if (!defined('APP_URL'))  define('APP_URL',   env('APP_URL', 'https://tontines-facile.vercel.app'));
 define('APP_NAME',       'Tontines Facile');
 
+/* Clé API Brevo (ex-Sendinblue) — à définir dans les variables d'environnement
+   Vercel (Project Settings > Environment Variables) sous le nom BREVO_API_KEY.
+   Créer un compte gratuit sur https://www.brevo.com (300 emails/jour offerts)
+   puis générer la clé dans SMTP & API > API Keys. */
+define('BREVO_API_KEY', env('BREVO_API_KEY', ''));
+
 /* ══════════════════════════════════════════════════════════════════
    MAILER CLASS
    ══════════════════════════════════════════════════════════════════ */
@@ -90,19 +96,48 @@ class Mailer {
 HTML;
   }
 
-  /* ── Envoi générique ── */
+  /* ── Envoi générique via l'API HTTP de Brevo ──
+     Important : la fonction native mail() ne fonctionne PAS sur Vercel
+     (aucun serveur mail local dans l'environnement serverless), il faut
+     donc passer par un service tiers joignable en HTTP. */
   private static function send(string $to, string $subject, string $html): bool {
-    $headers  = "MIME-Version: 1.0\r\n";
-    $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-    $headers .= "From: " . MAIL_FROM_NAME . " <" . MAIL_FROM . ">\r\n";
-    $headers .= "Reply-To: " . MAIL_REPLY_TO . "\r\n";
-    $headers .= "X-Mailer: TontinesFacile/1.0\r\n";
-    $headers .= "X-Priority: 3\r\n";
-
-    /* Log pour debug (commenter en production) */
     error_log("[MAILER] To: $to | Subject: $subject");
 
-    return mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $html, $headers);
+    if (!BREVO_API_KEY) {
+      error_log("[MAILER] BREVO_API_KEY manquante — email non envoyé (voir Mailer.php).");
+      return false;
+    }
+
+    $payload = json_encode([
+      'sender'      => ['name' => MAIL_FROM_NAME, 'email' => MAIL_FROM],
+      'to'          => [['email' => $to]],
+      'replyTo'     => ['email' => MAIL_REPLY_TO],
+      'subject'     => $subject,
+      'htmlContent' => $html,
+    ], JSON_UNESCAPED_UNICODE);
+
+    $ch = curl_init('https://api.brevo.com/v3/smtp/email');
+    curl_setopt_array($ch, [
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_POST           => true,
+      CURLOPT_POSTFIELDS     => $payload,
+      CURLOPT_HTTPHEADER     => [
+        'accept: application/json',
+        'content-type: application/json',
+        'api-key: ' . BREVO_API_KEY,
+      ],
+      CURLOPT_TIMEOUT => 10,
+    ]);
+    $response = curl_exec($ch);
+    $status   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlErr  = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlErr || $status >= 300) {
+      error_log("[MAILER] Échec envoi vers $to — HTTP $status — $curlErr — $response");
+      return false;
+    }
+    return true;
   }
 
   /* ══════════════════════════════════════════════════════

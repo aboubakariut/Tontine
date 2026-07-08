@@ -7,6 +7,28 @@
 declare(strict_types=1);
 
 /* ─── CONFIGURATION (variables d'environnement Vercel / .env) ─── */
+
+/* En local (php -S, etc.) il n'y a pas de variables d'env Vercel :
+   on charge le fichier .env à la racine du projet s'il existe.
+   Sur Vercel, ce fichier n'est pas présent (ou pas déployé) et les
+   vraies variables d'environnement définies dans le dashboard prennent le relai. */
+if (!function_exists('tf_load_dotenv')) {
+    function tf_load_dotenv(string $path): void {
+        if (!is_file($path)) return;
+        foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) continue;
+            [$key, $value] = explode('=', $line, 2);
+            $key   = trim($key);
+            $value = trim(trim($value), " \t\"'");
+            if ($key === '' || getenv($key) !== false) continue; // ne pas écraser une vraie var d'env déjà définie
+            putenv("$key=$value");
+            $_ENV[$key] = $value;
+        }
+    }
+}
+tf_load_dotenv(__DIR__ . '/../.env');
+
 function env(string $key, string $default = ''): string {
     return $_ENV[$key] ?? getenv($key) ?: $default;
 }
@@ -533,6 +555,11 @@ try {
             $token = Auth::createSession($uid);
             $user  = Auth::userToPublic(DB::row("SELECT * FROM users WHERE id = ?", [$uid]));
             audit('security', 'Inscription', "Nouveau compte créé : $email", $uid);
+
+            /* Email de bienvenue (best-effort, ne bloque jamais l'inscription) */
+            require_once __DIR__ . '/Mailer.php';
+            try { Mailer::sendWelcome($email, trim($input['firstname']), $inviteCode); } catch (Throwable $e) {}
+
             success(['user' => $user, 'token' => $token], 'Compte créé avec succès !');
         }
 
@@ -935,33 +962,6 @@ try {
         /* ────────────────────────────────────
            INVITATIONS: SEND
            ──────────────────────────────────── */
-        case 'sendInvite': {
-            $user = Auth::requireAuth($input);
-            $tid  = (int)($input['tontineId'] ?? 0);
-            validate(['email' => 'required|email'], $input);
-
-            $t = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
-            if (!$t) error('Tontine introuvable.');
-            $isAdmin = (bool)DB::row("SELECT id FROM memberships WHERE tontine_id=? AND user_id=? AND role='admin' AND status='active'", [$tid, $user['id']]);
-            if (!$isAdmin) error('Seul l\'administrateur peut envoyer des invitations.', 403);
-
-            $email = strtolower(trim($input['email']));
-            $token = bin2hex(random_bytes(20));
-            $expires = date('Y-m-d H:i:s', strtotime('+7 days'));
-
-            DB::insert(
-                "INSERT INTO invitations (tontine_id, invited_by, email, message, token, expires_at)
-                 VALUES (?,?,?,?,?,?)",
-                [$tid, $user['id'], $email, trim($input['message'] ?? ''), $token, $expires]
-            );
-
-            audit('admin', 'Invitation envoyée', "Email: $email — Tontine: {$t['name']}", $user['id'], $tid);
-
-            /* In production, send email here via mail() or SMTP */
-            success(['token' => $token, 'link' => "?action=joinByInvite&token=$token"],
-                "Invitation envoyée à $email !");
-        }
-
         /* ────────────────────────────────────
            INVITATIONS: GET PENDING
            ──────────────────────────────────── */
@@ -1026,32 +1026,6 @@ try {
             DB::q("UPDATE tontines SET " . implode(', ', $updates) . " WHERE id = ?", $params);
             audit('admin', 'Tontine mise à jour', implode(', ', array_map(fn($k) => "$k modifié", array_keys($input))), $user['id'], $tid);
             success(null, 'Tontine mise à jour.');
-        }
-
-        /* ────────────────────────────────────
-           SEND REMINDER (admin)
-           ──────────────────────────────────── */
-        case 'sendReminder': {
-            $tid  = (int)($input['tontineId'] ?? 0);
-            $user = Auth::requireAdmin($input, $tid);
-
-            /* Get unpaid members */
-            $t = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
-            $unpaid = DB::rows(
-                "SELECT u.id, u.firstname, u.lastname FROM memberships m JOIN users u ON u.id=m.user_id
-                 WHERE m.tontine_id=? AND m.status='active'
-                 AND u.id NOT IN (SELECT user_id FROM payments WHERE tontine_id=? AND tour=?)",
-                [$tid, $tid, $t['current_tour']]
-            );
-
-            foreach ($unpaid as $m) {
-                notify($m['id'], 'payment_reminder', 'Rappel de paiement',
-                    'Votre mise de ' . number_format((float)$t['amount'], 0, ',', ' ') . ' FCFA est attendue.', $tid);
-            }
-
-            $count = count($unpaid);
-            audit('admin', 'Rappels envoyés', "$count rappels envoyés pour le tour {$t['current_tour']}", $user['id'], $tid);
-            success(['count' => $count], "$count rappel(s) envoyé(s) !");
         }
 
         /* ────────────────────────────────────
@@ -1296,8 +1270,6 @@ try {
         /* ────────────────────────────────────
            INSCRIPTION (améliorée avec email de bienvenue)
            ──────────────────────────────────── */
-        /* Note: override du case 'register' ci-dessus avec email welcome */
-
         /* ────────────────────────────────────
            SERVER-SENT EVENTS (notifications temps réel)
            ──────────────────────────────────── */
