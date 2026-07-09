@@ -15,7 +15,7 @@ if (!function_exists('env')) {
 define('MAIL_FROM',      env('MAIL_FROM',     'noreply@tontinesfacile.app'));
 define('MAIL_FROM_NAME', env('MAIL_FROM_NAME','Tontines Facile'));
 define('MAIL_REPLY_TO',  env('MAIL_REPLY_TO', 'support@tontinesfacile.app'));
-if (!defined('APP_URL'))  define('APP_URL',   env('APP_URL', 'https://tontines-facile.vercel.app'));
+if (!defined('APP_URL'))  define('APP_URL',   env('APP_URL', 'https://tontine-iota.vercel.app'));
 define('APP_NAME',       'Tontines Facile');
 
 /* Clé API Brevo (ex-Sendinblue) — à définir dans les variables d'environnement

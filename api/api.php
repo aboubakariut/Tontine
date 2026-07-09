@@ -42,7 +42,7 @@ define('DB_CHARSET',       env('DB_CHARSET', 'utf8mb4'));
 define('DB_SSL',           env('DB_HOST', 'localhost') !== 'localhost');
 define('JWT_SECRET',       env('JWT_SECRET', 'change-this-secret-in-production'));
 define('APP_VERSION',      '1.0.0');
-define('APP_URL',          env('APP_URL',    'http://localhost'));
+define('APP_URL',          env('APP_URL',    'https://tontine-iota.vercel.app'));
 define('VAPID_PUBLIC_KEY', env('VAPID_PUBLIC_KEY', ''));
 define('SMTP_HOST',        env('SMTP_HOST',  ''));
 define('SMTP_PORT',        (int) env('SMTP_PORT', '587'));
@@ -824,6 +824,45 @@ try {
 
             $msg = $status === 'active' ? 'Vous avez rejoint la tontine !' : 'Demande envoyée ! L\'administrateur va l\'examiner.';
             success(['status' => $status], $msg);
+        }
+
+        /* ────────────────────────────────────
+           MEMBERSHIPS: ADD DIRECTLY (admin)
+           L'admin ajoute un utilisateur existant (par email ou téléphone)
+           directement comme membre actif, sans passer par une invitation.
+           ──────────────────────────────────── */
+        case 'addMemberDirect': {
+            $tid = (int)($input['tontineId'] ?? 0);
+            $admin = Auth::requireAdmin($input, $tid);
+            $identifier = trim($input['identifier'] ?? '');
+            if (!$identifier) error('Email ou téléphone requis.');
+
+            $t = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
+            if (!$t) error('Tontine introuvable.');
+            if ($t['status'] === 'closed') error('Cette tontine est fermée.');
+            if ($t['current_members'] >= $t['max_members']) error('Cette tontine est complète.');
+
+            $member = DB::row("SELECT * FROM users WHERE email = ? OR phone = ?",
+                [strtolower($identifier), $identifier]);
+            if (!$member) error('Aucun compte Tontines Facile trouvé avec cet email ou ce numéro. Utilisez plutôt l\'invitation par email.');
+
+            $exists = DB::row("SELECT * FROM memberships WHERE tontine_id = ? AND user_id = ?", [$tid, $member['id']]);
+            if ($exists && $exists['status'] === 'active') error('Cette personne est déjà membre de la tontine.');
+
+            $order = $t['current_members'] + 1;
+            if ($exists) {
+                DB::q("UPDATE memberships SET status='active', tour_order=? WHERE id=?", [$order, $exists['id']]);
+            } else {
+                DB::insert("INSERT INTO memberships (tontine_id, user_id, role, status, tour_order) VALUES (?,?,'member','active',?)",
+                    [$tid, $member['id'], $order]);
+            }
+            DB::q("UPDATE tontines SET current_members = current_members + 1 WHERE id = ?", [$tid]);
+
+            audit('admin', 'Membre ajouté', "{$member['firstname']} {$member['lastname']} ajouté(e) directement par l'administrateur", $admin['id'], $tid);
+            notify($member['id'], 'member', 'Ajouté(e) à une tontine',
+                "Vous avez été ajouté(e) à la tontine « {$t['name']} » par {$admin['firstname']}.", $tid);
+
+            success(['userId' => $member['id']], "{$member['firstname']} {$member['lastname']} a été ajouté(e) à la tontine !");
         }
 
         /* ────────────────────────────────────
