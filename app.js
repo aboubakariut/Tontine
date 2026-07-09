@@ -162,6 +162,9 @@ const Nav = {
   history: [],
 
   go(page, title = '') {
+    /* Stoppe le rafraîchissement automatique des messages si on quitte le fil de discussion */
+    if (page !== 'chat-thread' && typeof Chat !== 'undefined') Chat.stopPolling();
+
     /* Hide all pages */
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -175,7 +178,7 @@ const Nav = {
     if (navBtn) navBtn.classList.add('active');
 
     /* Topbar mode */
-    const isRoot = ['dashboard', 'my-tontines', 'create-tontine', 'join-tontine', 'profile', 'settings', 'auth'].includes(page);
+    const isRoot = ['dashboard', 'my-tontines', 'create-tontine', 'join-tontine', 'profile', 'settings', 'auth', 'contacts', 'chat'].includes(page);
     const topbarLogo = document.getElementById('topbar-logo');
     const topbarTitle = document.getElementById('topbar-title');
     const btnBack = document.getElementById('btn-back');
@@ -308,6 +311,7 @@ const Auth = {
     }, 100);
 
     Dashboard.load();
+    Chat.startBackgroundRefresh();
     Nav.go('dashboard');
     Toast.show(`Bienvenue, ${user?.firstname || user?.email || ''} ! 👋`, 'success');
   },
@@ -450,8 +454,11 @@ const TontineDetail = {
     (t.members || []).forEach(m => {
       const div = document.createElement('div');
       div.className = 'member-item';
+      const photo = m.avatar_photo || m.avatarPhoto;
+      const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
+      const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
       div.innerHTML = `
-        <div class="avatar-sm">${m.initials || m.name.slice(0,2).toUpperCase()}</div>
+        <div class="${avatarClass}"${avatarStyle}>${photo ? '' : (m.initials || m.name.slice(0,2).toUpperCase())}</div>
         <div class="member-info">
           <p class="member-name">${m.name}</p>
           <p class="member-role">${m.role} • Tour #${m.order}</p>
@@ -491,9 +498,12 @@ const TontineDetail = {
       });
     });
 
-    /* Invite button */
+    /* Invite button — navigue directement vers la page invite avec le code
+       de CETTE tontine déjà récupéré et affiché, sans que l'utilisateur
+       ait besoin de la sélectionner à nouveau dans la liste */
     document.getElementById('btn-invite-member').onclick = () => {
       Nav.go('invite', 'Inviter');
+      Invite.preselect(t);
     };
 
     /* Reset to first tab */
@@ -715,7 +725,7 @@ const Profile = {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
 
-    set('profile-avatar',   avatar);
+    UI.setAvatarEl('profile-avatar', u);
     set('profile-name',     `${firstname} ${lastname}`.trim());
     set('profile-email',    email);
     set('profile-role',     u.role || 'Membre');
@@ -749,6 +759,33 @@ const Profile = {
 
     document.getElementById('btn-copy-code').addEventListener('click', () => {
       UI.copyText(document.getElementById('my-invite-code').textContent);
+    });
+
+    /* Photo de profil : clic sur le crayon ouvre le sélecteur de fichier */
+    document.getElementById('btn-edit-avatar').addEventListener('click', () => {
+      document.getElementById('avatar-file-input').click();
+    });
+    document.getElementById('avatar-file-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      e.target.value = ''; /* permet de re-sélectionner le même fichier ensuite */
+      if (!file) return;
+      if (!file.type.startsWith('image/')) { Toast.show('Choisissez un fichier image.', 'error'); return; }
+
+      try {
+        const base64 = await UI.resizeImageToBase64(file);
+        const res = await API.request('updateAvatar', { avatar: base64 });
+        if (res.success) {
+          App.currentUser.avatar = res.data.avatar;
+          App.currentUser.avatar_photo = res.data.avatar_photo;
+          Storage.save('user', App.currentUser);
+          UI.updateUserInfo();
+          Toast.show('Photo de profil mise à jour !', 'success');
+        } else {
+          Toast.show(res.message || 'Erreur lors de la mise à jour de la photo', 'error');
+        }
+      } catch (err) {
+        Toast.show("Impossible de traiter cette image", 'error');
+      }
     });
 
     document.getElementById('btn-change-password').addEventListener('click', async () => {
@@ -989,27 +1026,409 @@ const Invite = {
     document.getElementById('share-link').textContent = `${window.location.origin}/join/${code}`;
   },
 
+  _populate(list, select) {
+    const prevValue = select.value;
+    select.innerHTML = '<option value="">-- Choisir une tontine --</option>';
+    this.tontines = (list || []).filter(t => t.userRole === 'admin');
+    this.tontines.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      select.appendChild(opt);
+    });
+    /* Conserve la sélection en cours si elle existe toujours dans la nouvelle liste */
+    if (prevValue && this.tontines.some(t => String(t.id) === String(prevValue))) {
+      select.value = prevValue;
+    }
+  },
+
   async loadTontines() {
-    const res = await API.request('getTontines');
     const select = document.getElementById('invite-tontine-select');
     if (!select) return;
-    select.innerHTML = '<option value="">-- Choisir une tontine --</option>';
-    this.tontines = [];
+
+    /* Affichage instantané à partir du cache déjà chargé (dashboard / mes tontines),
+       pour éviter que le select reste vide/lent le temps d'un nouvel appel réseau */
+    if (MyTontines.data && MyTontines.data.length) {
+      this._populate(MyTontines.data, select);
+      this.updateCodeAndLink(select.value);
+    }
+
+    /* Rafraîchit ensuite en arrière-plan pour rester synchronisé avec le serveur */
+    const res = await API.request('getTontines');
     if (res.success) {
-      this.tontines = res.data.filter(t => t.userRole === 'admin');
-      this.tontines.forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t.id;
-        opt.textContent = t.name;
-        select.appendChild(opt);
-      });
+      this._populate(res.data, select);
     }
     this.updateCodeAndLink(select.value);
+  },
+
+  /* Pré-sélectionne une tontine précise (ex: depuis le bouton "Inviter un membre"
+     sur la page de détail) sans que l'utilisateur ait besoin de la choisir manuellement */
+  async preselect(tontine) {
+    await this.loadTontines();
+    const select = document.getElementById('invite-tontine-select');
+    if (!select || !tontine) return;
+    const exists = this.tontines.some(t => String(t.id) === String(tontine.id));
+    if (exists) {
+      select.value = tontine.id;
+      this.updateCodeAndLink(tontine.id);
+    }
   }
 };
 
-/* ═══════════════════════════════ UI HELPERS ═══════════════════════════════ */
+/* ═══════════════════════════════ CONTACTS ═══════════════════════════════ */
+const Contacts = {
+  searchTimer: null,
+  _lastAccepted: [],
+
+  init() {
+    const input = document.getElementById('contacts-search-input');
+    input.addEventListener('input', () => {
+      clearTimeout(this.searchTimer);
+      const q = input.value.trim();
+      const results = document.getElementById('contacts-search-results');
+      if (q.length < 2) { results.innerHTML = ''; return; }
+      this.searchTimer = setTimeout(() => this.search(q), 400);
+    });
+  },
+
+  async load() {
+    const res = await API.request('getContacts');
+    if (!res.success) return;
+    const { accepted, incoming, outgoing } = res.data;
+    this._lastAccepted = accepted;
+
+    const incomingCard = document.getElementById('contacts-incoming-card');
+    const outgoingCard = document.getElementById('contacts-outgoing-card');
+    incomingCard.style.display = incoming.length ? 'block' : 'none';
+    outgoingCard.style.display = outgoing.length ? 'block' : 'none';
+
+    const incomingList = document.getElementById('contacts-incoming-list');
+    incomingList.innerHTML = '';
+    incoming.forEach(c => incomingList.appendChild(this.renderItem(c, 'incoming')));
+
+    const outgoingList = document.getElementById('contacts-outgoing-list');
+    outgoingList.innerHTML = '';
+    outgoing.forEach(c => outgoingList.appendChild(this.renderItem(c, 'outgoing')));
+
+    const acceptedList = document.getElementById('contacts-accepted-list');
+    acceptedList.innerHTML = '';
+    if (!accepted.length) {
+      acceptedList.innerHTML = UI.emptyState('Vous n\'avez pas encore de contacts');
+    } else {
+      accepted.forEach(c => acceptedList.appendChild(this.renderItem(c, 'accepted')));
+    }
+  },
+
+  renderItem(c, mode) {
+    const div = document.createElement('div');
+    div.className = 'member-item contact-item';
+    const photo = c.avatar_photo;
+    const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
+    const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
+    let actions = '';
+    if (mode === 'incoming') {
+      actions = `
+        <div class="contact-item-actions">
+          <button class="btn-icon" title="Accepter" onclick="Contacts.respond(${c.id},'accept')" style="color:var(--color-primary)">
+            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <button class="btn-icon" title="Refuser" onclick="Contacts.respond(${c.id},'decline')" style="color:var(--color-red)">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>`;
+    } else if (mode === 'outgoing') {
+      actions = `<span class="member-status member-pending">En attente</span>`;
+    } else {
+      actions = `
+        <div class="contact-item-actions">
+          <button class="btn-icon" title="Envoyer un message" onclick="Chat.openWithUser(${c.id})">
+            <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <button class="btn-icon" title="Retirer" onclick="Contacts.remove(${c.id})" style="color:var(--color-red)">
+            <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+          </button>
+        </div>`;
+    }
+    div.innerHTML = `
+      <div class="${avatarClass}"${avatarStyle}>${photo ? '' : (c.initials || c.name.slice(0,2).toUpperCase())}</div>
+      <div class="member-info">
+        <p class="member-name">${c.name}</p>
+        <p class="member-role">${c.invite_code || ''}</p>
+      </div>
+      ${actions}
+    `;
+    return div;
+  },
+
+  async search(q) {
+    const results = document.getElementById('contacts-search-results');
+    results.innerHTML = '<div class="empty-state small"><p>Recherche…</p></div>';
+    const res = await API.request('searchUsers', { query: q });
+    if (!res.success || !res.data.length) {
+      results.innerHTML = '<div class="empty-state small"><p>Aucun utilisateur trouvé</p></div>';
+      return;
+    }
+    results.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'contact-search-result';
+    res.data.forEach(u => {
+      const div = document.createElement('div');
+      div.className = 'member-item contact-item';
+      const photo = u.avatar_photo;
+      const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
+      const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
+      let action;
+      if (u.contactStatus === 'accepted') action = `<span class="member-status member-paid">Déjà ami</span>`;
+      else if (u.contactStatus === 'pending') action = `<span class="member-status member-pending">Invité(e)</span>`;
+      else action = `<button class="btn-primary btn-sm" onclick="Contacts.add(${u.id})">Ajouter</button>`;
+      div.innerHTML = `
+        <div class="${avatarClass}"${avatarStyle}>${photo ? '' : (u.initials || u.name.slice(0,2).toUpperCase())}</div>
+        <div class="member-info">
+          <p class="member-name">${u.name}</p>
+          <p class="member-role">${u.invite_code || u.email || ''}</p>
+        </div>
+        ${action}
+      `;
+      wrap.appendChild(div);
+    });
+    results.appendChild(wrap);
+  },
+
+  async add(contactId) {
+    const res = await API.request('addContact', { contactId });
+    if (res.success) {
+      Toast.show(res.message || 'Demande envoyée !', 'success');
+      const input = document.getElementById('contacts-search-input');
+      if (input.value.trim().length >= 2) this.search(input.value.trim());
+      this.load();
+    } else {
+      Toast.show(res.message || "Impossible d'ajouter ce contact", 'error');
+    }
+  },
+
+  async respond(contactId, decision) {
+    const res = await API.request('respondContact', { contactId, decision });
+    if (res.success) { Toast.show(res.message || 'Fait !', 'success'); this.load(); }
+    else Toast.show(res.message || 'Erreur', 'error');
+  },
+
+  async remove(contactId) {
+    const confirmed = await Modal.confirm('Retirer ce contact ?', 'Vous pourrez le ré-ajouter plus tard si besoin.', 'Retirer');
+    if (!confirmed) return;
+    const res = await API.request('removeContact', { contactId });
+    if (res.success) { Toast.show('Contact retiré', 'success'); this.load(); }
+  }
+};
+
+
+/* ═══════════════════════════════ CHAT ═══════════════════════════════ */
+const Chat = {
+  currentConversationId: null,
+  currentTitle: '',
+  pollTimer: null,
+  listPollTimer: null,
+  lastMessageId: 0,
+
+  init() {
+    document.getElementById('btn-chat-send').addEventListener('click', () => this.send());
+    document.getElementById('chat-message-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); this.send(); }
+    });
+  },
+
+  /* Rafraîchit périodiquement le badge de messages non lus, même en dehors
+     des pages chat (polling léger — cf. choix "polling" pour le temps réel) */
+  startBackgroundRefresh() {
+    this.stopBackgroundRefresh();
+    this.listPollTimer = setInterval(() => {
+      if (App.currentPage !== 'chat' && App.currentPage !== 'chat-thread') this.refreshUnreadBadge();
+    }, 15000);
+  },
+  stopBackgroundRefresh() {
+    if (this.listPollTimer) { clearInterval(this.listPollTimer); this.listPollTimer = null; }
+  },
+  async refreshUnreadBadge() {
+    const res = await API.request('getConversations');
+    if (!res.success) return;
+    const total = res.data.reduce((sum, c) => sum + (c.unread || 0), 0);
+    this.updateUnreadBadge(total);
+  },
+
+  async loadConversations() {
+    const res = await API.request('getConversations');
+    const list = document.getElementById('chat-conversations-list');
+    list.innerHTML = '';
+    if (!res.success || !res.data.length) {
+      list.innerHTML = UI.emptyState('Aucune conversation pour le moment. Démarrez-en une depuis vos contacts !', 'contacts', 'Voir mes contacts');
+      this.updateUnreadBadge(0);
+      return;
+    }
+    let totalUnread = 0;
+    res.data.forEach(c => {
+      totalUnread += c.unread || 0;
+      list.appendChild(this.renderConversationItem(c));
+    });
+    this.updateUnreadBadge(totalUnread);
+  },
+
+  renderConversationItem(c) {
+    const div = document.createElement('div');
+    div.className = 'conversation-item';
+    const photo = c.avatar_photo;
+    const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
+    const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
+    const initials = (c.avatar && c.avatar.length <= 4) ? c.avatar : (c.title || '?').slice(0, 2).toUpperCase();
+    const time = c.last_at ? new Date(c.last_at.replace(' ', 'T')).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+    div.innerHTML = `
+      <div class="${avatarClass}"${avatarStyle}>${photo ? '' : initials}</div>
+      <div class="conversation-info">
+        <p class="conversation-name">${c.title || 'Conversation'}</p>
+        <p class="conversation-preview">${c.last_message ? UI.escapeHtml(c.last_message) : 'Aucun message pour le moment'}</p>
+      </div>
+      <div class="conversation-meta">
+        <span class="conversation-time">${time}</span>
+        ${c.unread ? `<span class="notif-badge-inline">${c.unread}</span>` : ''}
+      </div>
+    `;
+    div.addEventListener('click', () => this.openThread(c.id, c.title, c.avatar, c.avatar_photo));
+    return div;
+  },
+
+  updateUnreadBadge(n) {
+    const badge = document.getElementById('chat-unread-badge');
+    if (!badge) return;
+    if (n > 0) { badge.textContent = n > 99 ? '99+' : n; badge.style.display = 'inline-flex'; }
+    else badge.style.display = 'none';
+  },
+
+  /* Démarre (ou récupère) une conversation 1-à-1 avec un contact, et ouvre
+     directement le fil de discussion — appelé depuis la page Contacts */
+  async openWithUser(userId) {
+    const res = await API.request('startConversation', { userId });
+    if (!res.success) { Toast.show(res.message || 'Impossible de démarrer la discussion', 'error'); return; }
+    const contact = (Contacts && Array.isArray(Contacts._lastAccepted)) ? Contacts._lastAccepted.find(c => String(c.id) === String(userId)) : null;
+    await this.openThread(res.data.conversationId, contact?.name || 'Discussion', contact?.avatar, contact?.avatar_photo);
+  },
+
+  async openThread(conversationId, title, avatar, avatarPhoto) {
+    this.stopPolling();
+    this.currentConversationId = conversationId;
+    this.currentTitle = title || 'Discussion';
+    this.lastMessageId = 0;
+    Nav.go('chat-thread', this.currentTitle);
+    document.getElementById('chat-messages-list').innerHTML = '<div class="empty-state small"><p>Chargement…</p></div>';
+    await this.fetchMessages(true);
+    this.pollTimer = setInterval(() => this.fetchMessages(false), 3000);
+  },
+
+  stopPolling() {
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+  },
+
+  async fetchMessages(initial) {
+    if (!this.currentConversationId) return;
+    const res = await API.request('getMessages', {
+      conversationId: this.currentConversationId,
+      sinceId: initial ? 0 : this.lastMessageId
+    });
+    if (!res.success) return;
+    const list = document.getElementById('chat-messages-list');
+    if (initial) list.innerHTML = '';
+    if (!res.data.length) {
+      if (initial) list.innerHTML = '<div class="empty-state small"><p>Dites bonjour 👋</p></div>';
+      return;
+    }
+    const wasEmpty = list.querySelector('.empty-state');
+    if (wasEmpty) list.innerHTML = '';
+    res.data.forEach(m => {
+      this.lastMessageId = Math.max(this.lastMessageId, m.id);
+      list.appendChild(this.renderBubble(m));
+    });
+    list.scrollTop = list.scrollHeight;
+  },
+
+  renderBubble(m) {
+    const div = document.createElement('div');
+    const mine = String(m.sender_id) === String(App.currentUser?.id);
+    div.className = `chat-bubble ${mine ? 'mine' : 'theirs'}`;
+    const time = m.created_at ? new Date(m.created_at.replace(' ', 'T')).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+    div.innerHTML = `${UI.escapeHtml(m.body)}<span class="chat-bubble-time">${time}</span>`;
+    return div;
+  },
+
+  async send() {
+    const input = document.getElementById('chat-message-input');
+    const body = input.value.trim();
+    if (!body || !this.currentConversationId) return;
+    input.value = '';
+    const res = await API.request('sendMessage', { conversationId: this.currentConversationId, body });
+    if (res.success) {
+      await this.fetchMessages(false);
+    } else {
+      Toast.show(res.message || 'Message non envoyé', 'error');
+      input.value = body;
+    }
+  }
+};
+
 const UI = {
+  /* Échappe le HTML — indispensable pour afficher en sécurité du texte
+     saisi par les utilisateurs (messages du chat, etc.) */
+  escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str ?? '';
+    return div.innerHTML;
+  },
+
+
+  /* Affiche la photo de profil d'un utilisateur sur un élément avatar
+     (div rond), avec repli automatique sur les initiales si absente. */
+  setAvatarEl(id, user) {
+    const el = document.getElementById(id);
+    if (!el || !user) return;
+    const firstname = user.firstname || '';
+    const lastname  = user.lastname  || '';
+    const initials = (user.avatar && user.avatar.length <= 4)
+      ? user.avatar
+      : ((firstname[0] || '') + (lastname[0] || '')).toUpperCase() || '?';
+    const photo = user.avatar_photo || user.avatarPhoto || null;
+    if (photo) {
+      el.style.backgroundImage = `url('${photo}')`;
+      el.classList.add('has-photo');
+      el.textContent = '';
+    } else {
+      el.style.backgroundImage = '';
+      el.classList.remove('has-photo');
+      el.textContent = initials;
+    }
+  },
+
+  /* Redimensionne/compresse une image (fichier uploadé) en base64 JPEG,
+     pour rester léger vu qu'elle est stockée directement en base (pas
+     de stockage disque persistant sur l'hébergement serverless). */
+  resizeImageToBase64(file, maxSize = 320, quality = 0.7) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Lecture du fichier impossible'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('Image invalide'));
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > height && width > maxSize) { height *= maxSize / width; width = maxSize; }
+          else if (height > maxSize) { width *= maxSize / height; height = maxSize; }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  },
+
+
   formatAmount(n) {
     if (!n && n !== 0) return '—';
     return new Intl.NumberFormat('fr-FR').format(n) + ' F';
@@ -1100,8 +1519,8 @@ const UI = {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
     set('greeting-name',   firstname || 'Utilisateur');
-    set('dashboard-avatar', initials);
-    set('dropdown-avatar',  initials);
+    UI.setAvatarEl('dashboard-avatar', u);
+    UI.setAvatarEl('dropdown-avatar', u);
     set('dropdown-name',   `${firstname} ${lastname}`.trim());
     set('dropdown-email',  email);
 
@@ -1205,6 +1624,8 @@ function setupEventListeners() {
         if (page === 'audit-log') AuditLog.load();
        if (page === 'profile') Profile.load();
         if (page === 'invite') Invite.loadTontines();
+        if (page === 'contacts') Contacts.load();
+        if (page === 'chat') Chat.loadConversations();
         Nav.go(page);
       }
     }
@@ -1271,8 +1692,22 @@ async function init() {
   CreateTontine.init();
   JoinTontine.init();
   Invite.init(); /* sans await - ne bloque pas */
+  Contacts.init();
+  Chat.init();
 
-  /* 3. Splash screen */
+  /* 3. Déterminer et activer la bonne page AVANT d'afficher l'app,
+        pour éviter le flash du formulaire de connexion au démarrage */
+  const isLoggedIn = !!(savedUser && savedToken);
+  if (isLoggedIn) {
+    App.currentUser = savedUser;
+    App.token = savedToken;
+    UI.updateUserInfo();
+    Nav.go('dashboard');
+  } else {
+    Nav.go('auth');
+  }
+
+  /* 4. Splash screen */
   await new Promise(resolve => setTimeout(resolve, 2200));
   const splash = document.getElementById('splash-screen');
   if (splash) {
@@ -1281,15 +1716,11 @@ async function init() {
   }
   document.getElementById('app').classList.remove('hidden');
 
-  /* 4. Restaurer la session ou aller au login */
-  if (savedUser && savedToken) {
-    App.currentUser = savedUser;
-    App.token = savedToken;
-    UI.updateUserInfo();
-    await Dashboard.load();
-    Nav.go('dashboard');
-  } else {
-    Nav.go('auth');
+  /* 5. Charger les données du dashboard en arrière-plan (l'écran
+        dashboard est déjà actif, donc aucun flash de l'écran login) */
+  if (isLoggedIn) {
+    Dashboard.load().catch(err => console.error('Dashboard.load failed:', err));
+    Chat.startBackgroundRefresh();
   }
 
   /* 5. Si l'app a été ouverte via un lien d'invitation, pré-remplir et lancer la recherche */
