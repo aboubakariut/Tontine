@@ -1172,12 +1172,21 @@ function setupEventListeners() {
   document.getElementById('dropdown-overlay').addEventListener('click', () => Nav.closeMenu());
 
   /* Notification bell */
-  document.getElementById('btn-notif').addEventListener('click', () => {
-    Modal.open('Notifications',
-      `<div class="activity-item"><div class="activity-icon">💰</div><div class="activity-text"><strong>Rappel de paiement</strong><br><span>Mise de 25 000 F due dans 3 jours — Tontine Famille</span></div></div>
-       <div class="activity-item"><div class="activity-icon">👤</div><div class="activity-text"><strong>Nouvelle demande</strong><br><span>Kofi Mensah veut rejoindre votre tontine</span></div></div>
-       <div class="activity-item"><div class="activity-icon">✅</div><div class="activity-text"><strong>Paiement confirmé</strong><br><span>Votre mise du mois d'avril a été enregistrée</span></div></div>`
-    );
+  document.getElementById('btn-notif').addEventListener('click', async () => {
+    Modal.open('Notifications', '<p style="text-align:center;color:var(--color-text-2);padding:20px 0">Chargement…</p>');
+    const res = await API.request('getNotifications');
+    const notifs = res.success ? (res.data?.notifications ?? []) : [];
+    if (!notifs.length) {
+      Modal.open('Notifications', UI.emptyState('Aucune notification pour le moment'));
+      return;
+    }
+    const icons = { payment_reminder: '💰', member: '👤', payment_confirmed: '✅', admin: '📢', system: '🔄' };
+    const html = notifs.map(n => `
+      <div class="activity-item">
+        <div class="activity-icon">${icons[n.type] || '🔔'}</div>
+        <div class="activity-text"><strong>${n.title}</strong><br><span>${n.body || ''}</span></div>
+      </div>`).join('');
+    Modal.open('Notifications', html);
   });
 
   /* Modal close */
@@ -1351,7 +1360,7 @@ Dashboard.load = async function() {
   /* Update notification count */
   const nRes = await API.request('getNotifications');
   if (nRes.success) {
-    const unread = nRes.unread || 0;
+    const unread = nRes.data?.unread || 0;
     const badge  = document.getElementById('notif-badge');
     if (badge) {
       badge.textContent = unread;
