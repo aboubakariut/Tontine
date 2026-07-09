@@ -293,10 +293,14 @@ const Auth = {
     Storage.remove('token');
     App.currentUser = null;
 
-    App.currentUser = res.user;
-    App.token = res.token;
-    Storage.save('user', res.user);
-    Storage.save('token', res.token);
+    /* Le serveur renvoie { success, data: { user, token }, message } */
+    const user  = res.data?.user  ?? res.user;
+    const token = res.data?.token ?? res.token;
+
+    App.currentUser = user;
+    App.token = token;
+    Storage.save('user', user);
+    Storage.save('token', token);
 
     /* Petit délai pour s'assurer que le DOM est prêt */
     setTimeout(() => {
@@ -305,7 +309,7 @@ const Auth = {
 
     Dashboard.load();
     Nav.go('dashboard');
-    Toast.show(`Bienvenue, ${res.user.firstname || res.user.email} ! 👋`, 'success');
+    Toast.show(`Bienvenue, ${user?.firstname || user?.email || ''} ! 👋`, 'success');
   },
   logout() {
     if (!window.confirm('Se déconnecter de Tontines Facile ?')) return;
