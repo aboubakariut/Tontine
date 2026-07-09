@@ -123,7 +123,15 @@ class DB {
                 }
             }
             self::$pdo = new PDO($dsn, DB_USER, DB_PASS, $opts);
-            self::migrate();
+
+            /* La migration (CREATE TABLE ...) est coûteuse sur une base
+               distante (TiDB) et n'a besoin de tourner qu'une seule fois.
+               On vérifie d'abord si la table 'users' existe déjà avant
+               de relancer tout le script de migration à chaque requête. */
+            $exists = self::$pdo->query("SHOW TABLES LIKE 'users'")->fetch();
+            if (!$exists) {
+                self::migrate();
+            }
         } catch (PDOException $e) {
             error('Connexion DB échouée : ' . $e->getMessage(), 500);
         }
@@ -456,6 +464,18 @@ function formatTontineResponse(array $t, int $userId): array {
         default   => 'Fermé'
     };
 
+    /* ── Alias camelCase attendus par le frontend (app.js) ──
+       Les colonnes SQL sont en snake_case, mais tout le JS lit
+       currentMembers, maxMembers, inviteCode, etc. */
+    $t['currentMembers']   = (int)($t['current_members'] ?? 0);
+    $t['maxMembers']       = (int)($t['max_members'] ?? 0);
+    $t['currentTour']      = (int)($t['current_tour'] ?? 0);
+    $t['totalTours']       = (int)($t['total_tours'] ?? 0);
+    $t['inviteCode']       = $t['invite_code'] ?? '';
+    $t['nextPaymentDate']  = $t['next_payment_date'] ? date('d/m/Y', strtotime($t['next_payment_date'])) : '—';
+    $t['badgeText']        = $t['badge_text'];
+    $t['userRole']         = $t['user_role'] ?? null;
+
     /* Members */
     $members = DB::rows(
         "SELECT u.id, u.firstname, u.lastname, u.avatar, m.role, m.tour_order,
@@ -476,6 +496,9 @@ function formatTontineResponse(array $t, int $userId): array {
         $m['name'] = $m['firstname'] . ' ' . $m['lastname'];
     }
     $t['members'] = $members;
+    /* S'assurer que currentMembers reflète le nombre réel de membres actifs
+       (utile juste après la création, avant toute mise à jour du compteur) */
+    $t['currentMembers'] = count($members) ?: $t['currentMembers'];
 
     /* Next beneficiary */
     $bene = DB::row(
@@ -484,6 +507,7 @@ function formatTontineResponse(array $t, int $userId): array {
         [$t['id'], $t['current_tour']]
     );
     $t['next_beneficiary'] = $bene ? $bene['firstname'] . ' ' . substr($bene['lastname'], 0, 1) . '.' : '—';
+    $t['nextBeneficiary']  = $t['next_beneficiary'];
 
     /* Log */
     $log = DB::rows(
