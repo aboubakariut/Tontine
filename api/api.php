@@ -132,10 +132,81 @@ class DB {
             if (!$exists) {
                 self::migrate();
             }
+            /* Migrations incrémentales : ajoute les nouvelles colonnes/tables
+               (photo de profil, contacts, chat) sans jamais toucher aux données
+               existantes, que la base soit neuve ou déjà en production. */
+            self::migrateIncremental();
         } catch (PDOException $e) {
             error('Connexion DB échouée : ' . $e->getMessage(), 500);
         }
         return self::$pdo;
+    }
+
+    /* Ajoute une colonne seulement si elle n'existe pas encore (compatible
+       MySQL/TiDB anciens qui ne supportent pas ADD COLUMN IF NOT EXISTS) */
+    private static function addColumnIfMissing(string $table, string $column, string $definition): void {
+        $pdo = self::$pdo;
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?"
+        );
+        $stmt->execute([$table, $column]);
+        if (!(int)$stmt->fetchColumn()) {
+            $pdo->exec("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
+        }
+    }
+
+    public static function migrateIncremental(): void {
+        $pdo = self::$pdo;
+
+        /* ── Photo de profil ──
+           Hébergement serverless (Vercel) = pas de disque persistant,
+           on stocke donc l'image (déjà redimensionnée/compressée côté
+           client) directement en base, encodée en base64. */
+        self::addColumnIfMissing('users', 'avatar_photo', 'LONGTEXT NULL');
+
+        /* ── Contacts ── */
+        $pdo->exec("CREATE TABLE IF NOT EXISTS contacts (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            user_id     INT NOT NULL,
+            contact_id  INT NOT NULL,
+            status      ENUM('pending','accepted','blocked') DEFAULT 'pending',
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_pair (user_id, contact_id),
+            FOREIGN KEY (user_id)    REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (contact_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        /* ── Chat ── */
+        $pdo->exec("CREATE TABLE IF NOT EXISTS conversations (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            is_group    TINYINT(1) DEFAULT 0,
+            title       VARCHAR(120) NULL,
+            created_by  INT NOT NULL,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS conversation_participants (
+            id              INT AUTO_INCREMENT PRIMARY KEY,
+            conversation_id INT NOT NULL,
+            user_id         INT NOT NULL,
+            last_read_at    DATETIME NULL,
+            UNIQUE KEY uniq_conv_user (conversation_id, user_id),
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id)         REFERENCES users(id)         ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS messages (
+            id              INT AUTO_INCREMENT PRIMARY KEY,
+            conversation_id INT NOT NULL,
+            sender_id       INT NOT NULL,
+            body            TEXT NOT NULL,
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            FOREIGN KEY (sender_id)       REFERENCES users(id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     }
 
     public static function migrate(): void {
@@ -478,7 +549,7 @@ function formatTontineResponse(array $t, int $userId): array {
 
     /* Members */
     $members = DB::rows(
-        "SELECT u.id, u.firstname, u.lastname, u.avatar, m.role, m.tour_order,
+        "SELECT u.id, u.firstname, u.lastname, u.avatar, u.avatar_photo, m.role, m.tour_order,
                 CONCAT(UPPER(LEFT(u.firstname,1)), UPPER(LEFT(u.lastname,1))) as initials
          FROM memberships m JOIN users u ON u.id = m.user_id
          WHERE m.tontine_id = ? AND m.status = 'active'
@@ -1201,25 +1272,25 @@ try {
             $avatar = trim($input['avatar'] ?? '');
             if (!$avatar) error('Avatar manquant.');
 
-            /* Si c'est une image base64, on la stocke ou on génère les initiales */
             $isBase64 = str_starts_with($avatar, 'data:image/');
             $isEmoji  = mb_strlen($avatar) <= 4 && !$isBase64;
 
             if ($isBase64) {
-                /* En production: sauvegarder sur disque/S3 et stocker l'URL */
-                /* Ici on stocke les 2 premières lettres de l'initiale en fallback */
-                $stored = strtoupper(substr($user['firstname'], 0, 1) . substr($user['lastname'], 0, 1));
-                /* Note: Pour stocker l'image réelle, décommentez et adaptez: */
-                /* $path = 'uploads/avatars/' . $user['id'] . '.jpg'; */
-                /* file_put_contents($path, base64_decode(explode(',', $avatar)[1])); */
-                /* $stored = $path; */
+                /* Limite de taille (image déjà redimensionnée/compressée côté
+                   client) pour éviter de stocker des images trop lourdes en base */
+                if (strlen($avatar) > 900_000) {
+                    error('Image trop volumineuse. Choisissez une photo plus légère.');
+                }
+                $initials = strtoupper(substr($user['firstname'], 0, 1) . substr($user['lastname'], 0, 1));
+                DB::q("UPDATE users SET avatar = ?, avatar_photo = ? WHERE id = ?", [$initials, $avatar, $user['id']]);
+                audit('member', 'Photo de profil mise à jour', '', $user['id']);
+                success(['avatar' => $initials, 'avatar_photo' => $avatar], 'Photo mise à jour !');
             } else {
-                $stored = $avatar; /* Emoji ou initiales */
+                /* Emoji ou initiales : on efface une éventuelle photo précédente */
+                DB::q("UPDATE users SET avatar = ?, avatar_photo = NULL WHERE id = ?", [$avatar, $user['id']]);
+                audit('member', 'Photo de profil mise à jour', '', $user['id']);
+                success(['avatar' => $avatar, 'avatar_photo' => null], 'Photo mise à jour !');
             }
-
-            DB::q("UPDATE users SET avatar = ? WHERE id = ?", [$stored, $user['id']]);
-            audit('member', 'Photo de profil mise à jour', '', $user['id']);
-            success(['avatar' => $stored], 'Photo mise à jour !');
         }
 
         /* ────────────────────────────────────
@@ -1407,6 +1478,203 @@ try {
             DB::q("UPDATE tontines SET status = 'closed' WHERE id = ?", [$tid]);
             audit('admin', 'Tontine fermée', "Tontine #{$tid} — {$t['name']}", $user['id'], $tid);
             success(null, 'Tontine fermée avec succès.');
+        }
+
+        /* ────────────────────────────────────
+           CONTACTS
+           ──────────────────────────────────── */
+        case 'searchUsers': {
+            $user = Auth::requireAuth($input);
+            $q = trim($input['query'] ?? '');
+            if (mb_strlen($q) < 2) error('Entrez au moins 2 caractères.');
+            $like = '%' . $q . '%';
+            $results = DB::rows(
+                "SELECT id, firstname, lastname, email, phone, avatar, avatar_photo, invite_code,
+                        CONCAT(UPPER(LEFT(firstname,1)), UPPER(LEFT(lastname,1))) as initials
+                 FROM users
+                 WHERE id != ? AND (email = ? OR phone = ? OR invite_code = ? OR firstname LIKE ? OR lastname LIKE ?)
+                 LIMIT 15",
+                [$user['id'], $q, $q, strtoupper($q), $like, $like]
+            );
+            /* Statut de contact déjà existant (pour ne pas ré-inviter) */
+            foreach ($results as &$r) {
+                $existing = DB::row("SELECT status FROM contacts WHERE user_id = ? AND contact_id = ?", [$user['id'], $r['id']]);
+                $r['contactStatus'] = $existing['status'] ?? null;
+                $r['name'] = trim($r['firstname'] . ' ' . $r['lastname']);
+            }
+            success($results);
+        }
+
+        case 'getContacts': {
+            $user = Auth::requireAuth($input);
+            $base = "SELECT u.id, u.firstname, u.lastname, u.avatar, u.avatar_photo, u.invite_code,
+                        CONCAT(UPPER(LEFT(u.firstname,1)), UPPER(LEFT(u.lastname,1))) as initials,
+                        c.status, c.created_at
+                     FROM contacts c JOIN users u ON u.id = c.contact_id";
+
+            $accepted = DB::rows("$base WHERE c.user_id = ? AND c.status = 'accepted' ORDER BY u.firstname ASC", [$user['id']]);
+            $incoming = DB::rows(
+                "SELECT u.id, u.firstname, u.lastname, u.avatar, u.avatar_photo,
+                        CONCAT(UPPER(LEFT(u.firstname,1)), UPPER(LEFT(u.lastname,1))) as initials,
+                        c.created_at
+                 FROM contacts c JOIN users u ON u.id = c.user_id
+                 WHERE c.contact_id = ? AND c.status = 'pending' ORDER BY c.created_at DESC",
+                [$user['id']]
+            );
+            $outgoing = DB::rows("$base WHERE c.user_id = ? AND c.status = 'pending' ORDER BY c.created_at DESC", [$user['id']]);
+
+            foreach ([&$accepted, &$incoming, &$outgoing] as &$list) {
+                foreach ($list as &$r) $r['name'] = trim($r['firstname'] . ' ' . $r['lastname']);
+            }
+            success(['accepted' => $accepted, 'incoming' => $incoming, 'outgoing' => $outgoing]);
+        }
+
+        case 'addContact': {
+            $user = Auth::requireAuth($input);
+            $contactId = (int)($input['contactId'] ?? 0);
+            if (!$contactId) error('Utilisateur manquant.');
+            if ($contactId === $user['id']) error('Vous ne pouvez pas vous ajouter vous-même.');
+            $target = DB::row("SELECT id FROM users WHERE id = ?", [$contactId]);
+            if (!$target) error('Utilisateur introuvable.');
+
+            $existing = DB::row("SELECT status FROM contacts WHERE user_id = ? AND contact_id = ?", [$user['id'], $contactId]);
+            if ($existing) error($existing['status'] === 'accepted' ? 'Déjà dans vos contacts.' : 'Demande déjà envoyée.');
+
+            DB::q("INSERT INTO contacts (user_id, contact_id, status) VALUES (?, ?, 'pending')", [$user['id'], $contactId]);
+            audit('member', 'Demande de contact envoyée', '', $user['id']);
+            success(null, 'Demande de contact envoyée !');
+        }
+
+        case 'respondContact': {
+            $user = Auth::requireAuth($input);
+            $contactId = (int)($input['contactId'] ?? 0);
+            $decision  = $input['decision'] ?? ''; // 'accept' | 'decline' | 'block'
+            if (!$contactId || !in_array($decision, ['accept', 'decline', 'block'], true)) {
+                error('Requête invalide.');
+            }
+            $req = DB::row("SELECT * FROM contacts WHERE user_id = ? AND contact_id = ? AND status = 'pending'", [$contactId, $user['id']]);
+            if (!$req) error('Demande introuvable.');
+
+            if ($decision === 'accept') {
+                DB::q("UPDATE contacts SET status = 'accepted' WHERE user_id = ? AND contact_id = ?", [$contactId, $user['id']]);
+                /* Relation symétrique : les deux se voient mutuellement comme contacts */
+                $mirror = DB::row("SELECT id FROM contacts WHERE user_id = ? AND contact_id = ?", [$user['id'], $contactId]);
+                if ($mirror) {
+                    DB::q("UPDATE contacts SET status = 'accepted' WHERE user_id = ? AND contact_id = ?", [$user['id'], $contactId]);
+                } else {
+                    DB::q("INSERT INTO contacts (user_id, contact_id, status) VALUES (?, ?, 'accepted')", [$user['id'], $contactId]);
+                }
+                success(null, 'Contact ajouté !');
+            } elseif ($decision === 'block') {
+                DB::q("UPDATE contacts SET status = 'blocked' WHERE user_id = ? AND contact_id = ?", [$contactId, $user['id']]);
+                success(null, 'Utilisateur bloqué.');
+            } else {
+                DB::q("DELETE FROM contacts WHERE user_id = ? AND contact_id = ?", [$contactId, $user['id']]);
+                success(null, 'Demande refusée.');
+            }
+        }
+
+        case 'removeContact': {
+            $user = Auth::requireAuth($input);
+            $contactId = (int)($input['contactId'] ?? 0);
+            if (!$contactId) error('Contact manquant.');
+            DB::q("DELETE FROM contacts WHERE (user_id = ? AND contact_id = ?) OR (user_id = ? AND contact_id = ?)",
+                [$user['id'], $contactId, $contactId, $user['id']]);
+            success(null, 'Contact supprimé.');
+        }
+
+        /* ────────────────────────────────────
+           CHAT
+           ──────────────────────────────────── */
+        case 'getConversations': {
+            $user = Auth::requireAuth($input);
+            $convs = DB::rows(
+                "SELECT c.id, c.is_group, c.title,
+                        (SELECT body FROM messages WHERE conversation_id = c.id ORDER BY id DESC LIMIT 1) as last_message,
+                        (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY id DESC LIMIT 1) as last_at,
+                        (SELECT COUNT(*) FROM messages m
+                            WHERE m.conversation_id = c.id
+                            AND m.created_at > COALESCE(cp.last_read_at, '1970-01-01')
+                            AND m.sender_id != ?) as unread
+                 FROM conversations c
+                 JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = ?
+                 ORDER BY last_at DESC",
+                [$user['id'], $user['id']]
+            );
+            foreach ($convs as &$c) {
+                if (!$c['is_group']) {
+                    $other = DB::row(
+                        "SELECT u.id, u.firstname, u.lastname, u.avatar, u.avatar_photo,
+                                CONCAT(UPPER(LEFT(u.firstname,1)), UPPER(LEFT(u.lastname,1))) as initials
+                         FROM conversation_participants cp JOIN users u ON u.id = cp.user_id
+                         WHERE cp.conversation_id = ? AND cp.user_id != ? LIMIT 1",
+                        [$c['id'], $user['id']]
+                    );
+                    $c['title'] = $other ? trim($other['firstname'] . ' ' . $other['lastname']) : 'Conversation';
+                    $c['avatar'] = $other['avatar'] ?? null;
+                    $c['avatar_photo'] = $other['avatar_photo'] ?? null;
+                    $c['otherUserId'] = $other['id'] ?? null;
+                }
+            }
+            success($convs);
+        }
+
+        case 'startConversation': {
+            $user = Auth::requireAuth($input);
+            $otherId = (int)($input['userId'] ?? 0);
+            if (!$otherId) error('Utilisateur manquant.');
+            if ($otherId === $user['id']) error('Impossible de démarrer une conversation avec vous-même.');
+
+            /* Réutilise une conversation 1-à-1 existante si elle existe déjà */
+            $existing = DB::row(
+                "SELECT cp1.conversation_id as id
+                 FROM conversation_participants cp1
+                 JOIN conversation_participants cp2 ON cp2.conversation_id = cp1.conversation_id
+                 JOIN conversations c ON c.id = cp1.conversation_id
+                 WHERE cp1.user_id = ? AND cp2.user_id = ? AND c.is_group = 0",
+                [$user['id'], $otherId]
+            );
+            if ($existing) { success(['conversationId' => (int)$existing['id']]); }
+
+            $convId = DB::insert("INSERT INTO conversations (is_group, created_by) VALUES (0, ?)", [$user['id']]);
+            DB::q("INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?), (?, ?)",
+                [$convId, $user['id'], $convId, $otherId]);
+            success(['conversationId' => (int)$convId]);
+        }
+
+        case 'getMessages': {
+            $user = Auth::requireAuth($input);
+            $convId = (int)($input['conversationId'] ?? 0);
+            if (!$convId) error('Conversation manquante.');
+            $isParticipant = DB::row("SELECT id FROM conversation_participants WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
+            if (!$isParticipant) error('Accès refusé.', 403);
+
+            $sinceId = (int)($input['sinceId'] ?? 0);
+            $params = [$convId];
+            $sql = "SELECT m.id, m.sender_id, m.body, m.created_at,
+                           CONCAT(UPPER(LEFT(u.firstname,1)), UPPER(LEFT(u.lastname,1))) as sender_initials
+                    FROM messages m JOIN users u ON u.id = m.sender_id
+                    WHERE m.conversation_id = ?";
+            if ($sinceId) { $sql .= " AND m.id > ?"; $params[] = $sinceId; }
+            $sql .= " ORDER BY m.id ASC LIMIT 200";
+            $messages = DB::rows($sql, $params);
+
+            DB::q("UPDATE conversation_participants SET last_read_at = NOW() WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
+            success($messages);
+        }
+
+        case 'sendMessage': {
+            $user = Auth::requireAuth($input);
+            $convId = (int)($input['conversationId'] ?? 0);
+            $body   = trim($input['body'] ?? '');
+            if (!$convId || !$body) error('Message vide.');
+            if (mb_strlen($body) > 2000) error('Message trop long.');
+            $isParticipant = DB::row("SELECT id FROM conversation_participants WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
+            if (!$isParticipant) error('Accès refusé.', 403);
+
+            $msgId = DB::insert("INSERT INTO messages (conversation_id, sender_id, body) VALUES (?, ?, ?)", [$convId, $user['id'], $body]);
+            DB::q("UPDATE conversation_participants SET last_read_at = NOW() WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
+            success(['id' => (int)$msgId], 'Message envoyé.');
         }
 
         default:
