@@ -541,7 +541,7 @@
               <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
             </button>
           </div>
-          <p class="invite-hint">Partagez ce code pour inviter des amis à rejoindre vos tontines</p>
+          <p class="invite-hint">Ce code identifie votre compte, il n'est pas lié à une tontine précise. Pour rejoindre UNE tontine, utilisez le code affiché sur la page "Inviter" de cette tontine (ou demandez-le à son administrateur).</p>
         </div>
       </div>
     </section>
@@ -715,15 +715,39 @@
         </div>
 
         <div class="form-card">
-          <h3 class="card-title">Inviter par email</h3>
+          <h3 class="card-title">Sélectionner une tontine</h3>
           <div class="form-group">
-            <label class="form-label">Sélectionner une tontine</label>
             <div class="select-wrap">
               <select class="form-input form-select" id="invite-tontine-select">
                 <option value="">-- Choisir une tontine --</option>
               </select>
             </div>
           </div>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Code de la tontine</h3>
+          <p class="form-hint" id="invite-code-hint" style="color:var(--color-text-2);font-size:var(--fs-sm);margin-bottom:8px;">Sélectionnez une tontine ci-dessus pour afficher son code.</p>
+          <div class="invite-code-box" id="invite-code-display" style="display:none;">
+            <span id="invite-tontine-code">—</span>
+            <button class="btn-icon" id="btn-copy-tontine-code" title="Copier le code">
+              <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Ajouter directement un membre</h3>
+          <p class="form-hint" style="color:var(--color-text-2);font-size:var(--fs-sm);margin-bottom:8px;">Si la personne a déjà un compte Tontines Facile, ajoutez-la immédiatement sans passer par une invitation par email.</p>
+          <div class="form-group">
+            <label class="form-label">Email ou téléphone du membre</label>
+            <input type="text" class="form-input" id="direct-add-identifier" placeholder="email@exemple.com ou +237 6 XX XX XX XX"/>
+          </div>
+          <button class="btn-primary btn-full" id="btn-direct-add">Ajouter à la tontine</button>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Inviter par email</h3>
           <div class="form-group">
             <label class="form-label">Email(s) de l'invité</label>
             <input type="email" class="form-input" id="invite-email" placeholder="ami@exemple.com"/>
@@ -752,7 +776,7 @@
             </button>
           </div>
           <div class="share-link-box">
-            <span id="share-link">https://tontinesfacile.app/join/TF-ABC123</span>
+            <span id="share-link">Sélectionnez une tontine ci-dessus</span>
           </div>
         </div>
       </div>

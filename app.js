@@ -909,6 +909,8 @@ const AuditLog = {
 
 /* ═══════════════════════════════ INVITE ═══════════════════════════════ */
 const Invite = {
+  tontines: [],
+
   init() {
     document.getElementById('btn-send-invite').addEventListener('click', async () => {
       const select = document.getElementById('invite-tontine-select');
@@ -924,11 +926,41 @@ const Invite = {
         Toast.show(`Invitation envoyée à ${email} !`, 'success');
         document.getElementById('invite-email').value = '';
         document.getElementById('invite-message').value = '';
+      } else {
+        Toast.show(res.message || "Erreur lors de l'envoi", 'error');
+      }
+    });
+
+    /* Met à jour le code + le lien de partage quand on change de tontine */
+    document.getElementById('invite-tontine-select').addEventListener('change', (e) => {
+      this.updateCodeAndLink(e.target.value);
+    });
+
+    document.getElementById('btn-copy-tontine-code')?.addEventListener('click', () => {
+      UI.copyText(document.getElementById('invite-tontine-code').textContent);
+    });
+
+    document.getElementById('btn-direct-add')?.addEventListener('click', async () => {
+      const select = document.getElementById('invite-tontine-select');
+      const tontineId = select.value;
+      const identifier = document.getElementById('direct-add-identifier').value.trim();
+      if (!tontineId) { Toast.show('Sélectionnez une tontine', 'error'); return; }
+      if (!identifier) { Toast.show('Entrez un email ou un numéro de téléphone', 'error'); return; }
+      UI.setLoading('btn-direct-add', true, 'Ajout...');
+      const res = await API.request('addMemberDirect', { tontineId, identifier });
+      UI.setLoading('btn-direct-add', false, 'Ajouter à la tontine');
+      if (res.success) {
+        Toast.show(res.message || 'Membre ajouté !', 'success');
+        document.getElementById('direct-add-identifier').value = '';
+      } else {
+        Toast.show(res.message || 'Impossible d\'ajouter ce membre', 'error');
       }
     });
 
     document.querySelectorAll('.share-btn').forEach(btn => {
       btn.addEventListener('click', () => {
+        const select = document.getElementById('invite-tontine-select');
+        if (!select.value) { Toast.show('Sélectionnez une tontine', 'error'); return; }
         const channel = btn.dataset.channel;
         const link = document.getElementById('share-link').textContent;
         const msg = `Rejoins ma tontine sur Tontines Facile ! ${link}`;
@@ -939,19 +971,40 @@ const Invite = {
     });
   },
 
+  updateCodeAndLink(tontineId) {
+    const codeBox  = document.getElementById('invite-code-display');
+    const codeHint = document.getElementById('invite-code-hint');
+    const t = this.tontines.find(t => String(t.id) === String(tontineId));
+    if (!t) {
+      codeBox.style.display = 'none';
+      codeHint.style.display = 'block';
+      document.getElementById('share-link').textContent = 'Sélectionnez une tontine ci-dessus';
+      return;
+    }
+    const code = t.inviteCode || t.invite_code || '—';
+    codeHint.style.display = 'none';
+    codeBox.style.display = 'flex';
+    document.getElementById('invite-tontine-code').textContent = code;
+    /* Lien basé sur le domaine réel de l'appli, pas un domaine fictif */
+    document.getElementById('share-link').textContent = `${window.location.origin}/join/${code}`;
+  },
+
   async loadTontines() {
     const res = await API.request('getTontines');
     const select = document.getElementById('invite-tontine-select');
     if (!select) return;
     select.innerHTML = '<option value="">-- Choisir une tontine --</option>';
+    this.tontines = [];
     if (res.success) {
-      res.data.filter(t => t.userRole === 'admin').forEach(t => {
+      this.tontines = res.data.filter(t => t.userRole === 'admin');
+      this.tontines.forEach(t => {
         const opt = document.createElement('option');
         opt.value = t.id;
         opt.textContent = t.name;
         select.appendChild(opt);
       });
     }
+    this.updateCodeAndLink(select.value);
   }
 };
 
@@ -1200,6 +1253,10 @@ function setupEventListeners() {
 
 async function init() {
 
+  /* 0. Lien d'invitation direct (ex: tontine-iota.vercel.app/join/TF-ABC123) */
+  const joinMatch = window.location.pathname.match(/\/join\/([A-Za-z0-9-]+)/);
+  const pendingJoinCode = joinMatch ? decodeURIComponent(joinMatch[1]).toUpperCase() : null;
+
   /* 1. Vérifier la session IMMÉDIATEMENT avant tout */
   const savedUser  = Storage.load('user');
   const savedToken = Storage.load('token');
@@ -1233,6 +1290,26 @@ async function init() {
     Nav.go('dashboard');
   } else {
     Nav.go('auth');
+  }
+
+  /* 5. Si l'app a été ouverte via un lien d'invitation, pré-remplir et lancer la recherche */
+  if (pendingJoinCode) {
+    Nav.go('join-tontine');
+    const input = document.getElementById('join-code');
+    if (input) input.value = pendingJoinCode;
+    const res = await API.request('searchTontine', { code: pendingJoinCode });
+    if (res.success) {
+      const t = res.data;
+      document.getElementById('preview-name').textContent    = t.name;
+      document.getElementById('preview-amount').textContent  = UI.formatAmount(t.amount);
+      document.getElementById('preview-members').textContent = t.members;
+      document.getElementById('preview-admin').textContent   = t.admin;
+      document.getElementById('preview-start').textContent   = t.start;
+      document.getElementById('preview-desc').textContent    = t.desc || '';
+      document.getElementById('join-preview')?.classList.remove('hidden');
+    } else {
+      Toast.show(res.message || 'Tontine introuvable. Vérifiez le code.', 'error');
+    }
   }
 }
 
