@@ -207,6 +207,22 @@ class DB {
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
             FOREIGN KEY (sender_id)       REFERENCES users(id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        /* ── Pièces jointes (photo, fichier, message vocal) ──
+           Stockées en base64 en base (pas de disque persistant en serverless).
+           Compressées/réduites côté client avant envoi. */
+        self::addColumnIfMissing('messages', 'attachment_type', "VARCHAR(10) NULL"); /* image | file | audio */
+        self::addColumnIfMissing('messages', 'attachment_data', 'LONGTEXT NULL');
+        self::addColumnIfMissing('messages', 'attachment_name', 'VARCHAR(180) NULL');
+        /* Un message peut être uniquement une pièce jointe (pas de texte) */
+        $bodyCol = $pdo->prepare(
+            "SELECT IS_NULLABLE FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'messages' AND COLUMN_NAME = 'body'"
+        );
+        $bodyCol->execute();
+        if ($bodyCol->fetchColumn() === 'NO') {
+            $pdo->exec("ALTER TABLE messages MODIFY body TEXT NULL");
+        }
     }
 
     public static function migrate(): void {
@@ -1542,6 +1558,8 @@ try {
 
             DB::q("INSERT INTO contacts (user_id, contact_id, status) VALUES (?, ?, 'pending')", [$user['id'], $contactId]);
             audit('member', 'Demande de contact envoyée', '', $user['id']);
+            notify($contactId, 'contact_request', 'Nouvelle demande de contact',
+                trim($user['firstname'] . ' ' . $user['lastname']) . ' souhaite vous ajouter.');
             success(null, 'Demande de contact envoyée !');
         }
 
@@ -1564,6 +1582,8 @@ try {
                 } else {
                     DB::q("INSERT INTO contacts (user_id, contact_id, status) VALUES (?, ?, 'accepted')", [$user['id'], $contactId]);
                 }
+                notify($contactId, 'contact_accepted', 'Contact accepté',
+                    trim($user['firstname'] . ' ' . $user['lastname']) . ' a accepté votre demande de contact.');
                 success(null, 'Contact ajouté !');
             } elseif ($decision === 'block') {
                 DB::q("UPDATE contacts SET status = 'blocked' WHERE user_id = ? AND contact_id = ?", [$contactId, $user['id']]);
@@ -1590,7 +1610,12 @@ try {
             $user = Auth::requireAuth($input);
             $convs = DB::rows(
                 "SELECT c.id, c.is_group, c.title,
-                        (SELECT body FROM messages WHERE conversation_id = c.id ORDER BY id DESC LIMIT 1) as last_message,
+                        (SELECT COALESCE(body, CASE attachment_type
+                                WHEN 'image' THEN '📷 Photo'
+                                WHEN 'audio' THEN '🎤 Message vocal'
+                                WHEN 'file'  THEN '📎 Fichier'
+                                ELSE '' END)
+                         FROM messages WHERE conversation_id = c.id ORDER BY id DESC LIMIT 1) as last_message,
                         (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY id DESC LIMIT 1) as last_at,
                         (SELECT COUNT(*) FROM messages m
                             WHERE m.conversation_id = c.id
@@ -1652,6 +1677,7 @@ try {
             $sinceId = (int)($input['sinceId'] ?? 0);
             $params = [$convId];
             $sql = "SELECT m.id, m.sender_id, m.body, m.created_at,
+                           m.attachment_type, m.attachment_data, m.attachment_name,
                            CONCAT(UPPER(LEFT(u.firstname,1)), UPPER(LEFT(u.lastname,1))) as sender_initials
                     FROM messages m JOIN users u ON u.id = m.sender_id
                     WHERE m.conversation_id = ?";
@@ -1667,12 +1693,26 @@ try {
             $user = Auth::requireAuth($input);
             $convId = (int)($input['conversationId'] ?? 0);
             $body   = trim($input['body'] ?? '');
-            if (!$convId || !$body) error('Message vide.');
-            if (mb_strlen($body) > 2000) error('Message trop long.');
+            $attType = $input['attachmentType'] ?? null; // image | file | audio
+            $attData = $input['attachmentData'] ?? null; // base64 data URI
+            $attName = trim($input['attachmentName'] ?? '');
+
+            if (!$convId) error('Conversation manquante.');
+            if (!$body && !$attData) error('Message vide.');
+            if ($body && mb_strlen($body) > 2000) error('Message trop long.');
+            if ($attData) {
+                if (!in_array($attType, ['image', 'file', 'audio'], true)) error('Type de pièce jointe invalide.');
+                /* Limite : image/audio déjà compressés côté client, fichiers bruts plafonnés */
+                $maxSize = $attType === 'file' ? 3_500_000 : 1_500_000;
+                if (strlen($attData) > $maxSize) error('Fichier trop volumineux.');
+            }
             $isParticipant = DB::row("SELECT id FROM conversation_participants WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
             if (!$isParticipant) error('Accès refusé.', 403);
 
-            $msgId = DB::insert("INSERT INTO messages (conversation_id, sender_id, body) VALUES (?, ?, ?)", [$convId, $user['id'], $body]);
+            $msgId = DB::insert(
+                "INSERT INTO messages (conversation_id, sender_id, body, attachment_type, attachment_data, attachment_name) VALUES (?, ?, ?, ?, ?, ?)",
+                [$convId, $user['id'], $body ?: null, $attType, $attData, $attName ?: null]
+            );
             DB::q("UPDATE conversation_participants SET last_read_at = NOW() WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
             success(['id' => (int)$msgId], 'Message envoyé.');
         }
