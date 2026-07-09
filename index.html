@@ -90,6 +90,8 @@
       <a href="#" class="dropdown-link" data-page="chat"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Messages <span class="notif-badge-inline" id="chat-unread-badge" style="display:none">0</span></a>
       <div class="dropdown-divider"></div>
       <a href="#" class="dropdown-link" data-page="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="2" fill="none"/></svg> Paramètres</a>
+      <a href="#" class="dropdown-link" data-page="terms"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="17" x2="16" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Conditions d'utilisation</a>
+      <a href="#" class="dropdown-link" data-page="privacy"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg> Confidentialité</a>
       <a href="#" class="dropdown-link danger" id="btn-logout"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Déconnexion</a>
     </nav>
   </div>
@@ -323,6 +325,10 @@
         </div>
 
         <div class="tab-content" id="tab-members">
+          <div class="form-card" id="detail-pending-requests-card" style="display:none;">
+            <h3 class="card-title">Demandes en attente</h3>
+            <div id="detail-pending-requests-list"></div>
+          </div>
           <div class="members-list" id="detail-members-list"></div>
           <button class="btn-ghost btn-full mt" id="btn-invite-member">
             <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -826,10 +832,90 @@
       <div class="page-content chat-thread-content">
         <div class="chat-messages" id="chat-messages-list"></div>
         <div class="chat-input-bar">
+          <input type="file" id="chat-file-input" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" style="display:none" />
+          <button class="btn-icon chat-attach-btn" id="btn-chat-attach" aria-label="Joindre un fichier">
+            <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <button class="btn-icon chat-attach-btn" id="btn-chat-record" aria-label="Message vocal">
+            <svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+          </button>
           <input type="text" class="form-input" id="chat-message-input" placeholder="Écrire un message..." autocomplete="off" />
           <button class="btn-icon btn-primary" id="btn-chat-send" aria-label="Envoyer">
             <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polygon points="22 2 15 22 11 13 2 9 22 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
           </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: CONDITIONS D'UTILISATION ── -->
+    <section class="page" id="page-terms">
+      <div class="page-content">
+        <div class="form-card legal-content">
+          <p class="legal-updated">Dernière mise à jour : Juillet 2026</p>
+
+          <h3 class="card-title">1. Objet</h3>
+          <p>Tontine App est un outil numérique de coordination et de suivi de tontines (épargne rotative entre particuliers). L'application facilite l'organisation, le suivi des cotisations déclarées et la communication entre membres d'un groupe de tontine.</p>
+
+          <h3 class="card-title">2. Zone de disponibilité</h3>
+          <p>L'application est actuellement disponible uniquement pour les résidents du Cameroun. Une extension progressive à d'autres pays d'Afrique est prévue ; la disponibilité dans un nouveau pays sera annoncée dans l'application.</p>
+
+          <h3 class="card-title">3. Nature du service — ce que l'application n'est pas</h3>
+          <p>Tontine App n'est ni une banque, ni un établissement de microfinance, ni un prestataire de services de paiement agréé. L'application ne détient, ne séquestre et ne transfère aucun fonds. Les cotisations sont échangées directement entre membres (en espèces, par mobile money ou tout autre moyen convenu entre eux) ; l'application ne fait qu'enregistrer les déclarations de paiement communiquées par les membres ou administrateurs de chaque tontine.</p>
+
+          <h3 class="card-title">4. Responsabilité</h3>
+          <p>Chaque tontine est organisée et administrée sous la responsabilité de ses membres. L'exactitude des montants, des dates et des statuts de paiement déclarés relève de la responsabilité de l'administrateur de la tontine et de ses membres. Tontine App ne garantit pas le respect des engagements financiers pris entre les membres et ne peut être tenu responsable en cas de non-paiement, de litige ou de fraude entre utilisateurs.</p>
+
+          <h3 class="card-title">5. Compte utilisateur</h3>
+          <p>Vous êtes responsable de la confidentialité de vos identifiants de connexion et de toute activité effectuée depuis votre compte. Toute utilisation frauduleuse doit être signalée sans délai.</p>
+
+          <h3 class="card-title">6. Comportement des utilisateurs</h3>
+          <p>Il est interdit d'utiliser l'application à des fins illégales, frauduleuses, ou pour harceler, menacer ou usurper l'identité d'autrui, notamment via les fonctionnalités de messagerie (chat) et de contacts.</p>
+
+          <h3 class="card-title">7. Modification des conditions</h3>
+          <p>Ces conditions peuvent être mises à jour. Les utilisateurs seront informés des changements significatifs via l'application.</p>
+
+          <h3 class="card-title">8. Droit applicable</h3>
+          <p>Les présentes conditions sont régies par le droit camerounais et les actes uniformes OHADA applicables.</p>
+
+          <h3 class="card-title">9. Contact</h3>
+          <p>Pour toute question relative à ces conditions, contactez-nous depuis la page Paramètres de l'application.</p>
+
+          <p class="legal-disclaimer">⚠️ Document type à faire valider par un professionnel du droit camerounais avant mise en production.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: POLITIQUE DE CONFIDENTIALITÉ ── -->
+    <section class="page" id="page-privacy">
+      <div class="page-content">
+        <div class="form-card legal-content">
+          <p class="legal-updated">Dernière mise à jour : Juillet 2026</p>
+
+          <h3 class="card-title">1. Données collectées</h3>
+          <p>Nous collectons : vos nom, prénom, email et/ou numéro de téléphone lors de l'inscription ; les données relatives aux tontines que vous créez ou rejoignez (montants, statuts de cotisation) ; votre photo de profil si vous choisissez d'en ajouter une ; le contenu des messages échangés via la messagerie intégrée ; vos contacts ajoutés dans l'application.</p>
+
+          <h3 class="card-title">2. Utilisation des données</h3>
+          <p>Vos données servent exclusivement au fonctionnement de l'application : gestion de votre compte, suivi des tontines, notifications, mise en relation avec vos contacts et messagerie. Nous ne vendons pas vos données à des tiers.</p>
+
+          <h3 class="card-title">3. Partage des données</h3>
+          <p>Vos informations de profil (nom, photo) sont visibles par les membres des tontines que vous rejoignez et par vos contacts acceptés. Les messages échangés dans le chat ne sont visibles que par les participants de la conversation concernée.</p>
+
+          <h3 class="card-title">4. Conservation et sécurité</h3>
+          <p>Les données sont stockées sur des serveurs sécurisés. Les mots de passe sont chiffrés. Les photos de profil et pièces jointes du chat sont stockées de façon chiffrée en base de données. Nous conservons vos données tant que votre compte est actif.</p>
+
+          <h3 class="card-title">5. Vos droits</h3>
+          <p>Vous pouvez à tout moment demander l'accès, la rectification ou la suppression de vos données personnelles depuis la page Paramètres, ou en nous contactant directement.</p>
+
+          <h3 class="card-title">6. Cookies et stockage local</h3>
+          <p>L'application utilise le stockage local de votre appareil pour conserver votre session de connexion. Aucune donnée n'est partagée avec des régies publicitaires.</p>
+
+          <h3 class="card-title">7. Mineurs</h3>
+          <p>L'application n'est pas destinée aux personnes de moins de 18 ans.</p>
+
+          <h3 class="card-title">8. Contact</h3>
+          <p>Pour exercer vos droits ou pour toute question relative à vos données, contactez-nous depuis la page Paramètres de l'application.</p>
+
+          <p class="legal-disclaimer">⚠️ Document type à faire valider par un professionnel du droit camerounais avant mise en production (conformité à la loi camerounaise n°2010/012 relative à la cybersécurité et à la cybercriminalité, et aux textes applicables à la protection des données personnelles).</p>
         </div>
       </div>
     </section>
