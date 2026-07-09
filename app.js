@@ -1224,10 +1224,6 @@ async function init() {
 }
 
 /* Start the app when DOM is ready */
-document.addEventListener('DOMContentLoaded', init);
-
-/* Start the app when DOM is ready 
-document.addEventListener('DOMContentLoaded', init);*/
 document.addEventListener('DOMContentLoaded', () => {
   try {
     init().catch(err => {
