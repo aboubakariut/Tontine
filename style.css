@@ -2130,3 +2130,21 @@ ul { list-style: none; }
   font-size: var(--fs-xs) !important;
   color: var(--color-text-3) !important;
 }
+
+/* ─── STATUT "À VALIDER" (déclaration en attente d'approbation admin) ─── */
+.member-status.member-review {
+  background: rgba(255, 159, 10, 0.15);
+  color: #d97706;
+}
+.admin-tag {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: var(--gradient-hero);
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+  margin-left: 4px;
+  vertical-align: middle;
+}

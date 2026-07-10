@@ -525,14 +525,51 @@ const TontineDetail = {
       const photo = m.avatar_photo || m.avatarPhoto;
       const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
       const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
+      const isSelf = String(m.id) === String(App.currentUser?.id);
+      const isAdminViewer = t.userRole === 'admin';
+
+      /* Statut de paiement */
+      let statusHtml;
+      if (m.paid) statusHtml = `<span class="member-status member-paid">✓ Payé</span>`;
+      else if (m.paymentPending) statusHtml = `<span class="member-status member-review">🕒 À valider</span>`;
+      else statusHtml = `<span class="member-status member-pending">⏳ En attente</span>`;
+
+      /* Bouton de paiement (le membre lui-même, uniquement si rien n'est en cours) */
+      const payBtn = (isSelf && !m.paid && !m.paymentPending)
+        ? `<button class="btn-icon" style="color:var(--color-primary)" title="Payer via Mobile Money" onclick="TontineDetail.payMobileMoney(${t.id})"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><line x1="11" y1="18" x2="13" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>`
+        : '';
+
+      /* Actions admin sur le paiement : valider directement, ou approuver/refuser une déclaration */
+      let paymentAdminBtns = '';
+      if (isAdminViewer && !m.paid) {
+        if (m.paymentPending) {
+          paymentAdminBtns = `
+            <button class="btn-icon" title="Confirmer la réception" style="color:var(--color-primary)" onclick="TontineDetail.recordPayment(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>
+            <button class="btn-icon" title="Refuser (introuvable)" style="color:var(--color-red)" onclick="TontineDetail.rejectPayment(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>`;
+        } else {
+          paymentAdminBtns = `<button class="btn-icon" title="Confirmer le paiement" style="color:var(--color-primary)" onclick="TontineDetail.recordPayment(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>`;
+        }
+      }
+
+      /* Gestion du membre : nommer/retirer admin, retirer de la tontine (jamais sur soi-même) */
+      let manageBtns = '';
+      if (isAdminViewer && !isSelf) {
+        manageBtns = m.role === 'admin'
+          ? `<button class="btn-icon" title="Retirer les droits admin" onclick="TontineDetail.updateMemberRole(${m.id},'member','${m.name}')"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>`
+          : `<button class="btn-icon" title="Nommer administrateur" onclick="TontineDetail.updateMemberRole(${m.id},'admin','${m.name}')"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 6.9H22l-6 4.6 2.4 7-6.4-4.6L5.6 20.5l2.4-7-6-4.6h7.6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg></button>`;
+        manageBtns += `<button class="btn-icon" title="Retirer de la tontine" style="color:var(--color-red)" onclick="TontineDetail.removeMember(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg></button>`;
+      }
+
       div.innerHTML = `
         <div class="${avatarClass}"${avatarStyle}>${photo ? '' : (m.initials || m.name.slice(0,2).toUpperCase())}</div>
         <div class="member-info">
-          <p class="member-name">${m.name}</p>
-          <p class="member-role">${m.role} • Tour #${m.order}</p>
+          <p class="member-name">${m.name}${m.role === 'admin' ? ' <span class="admin-tag">Admin</span>' : ''}</p>
+          <p class="member-role">Tour #${m.tour_order ?? m.order ?? '—'}</p>
         </div>
-        <span class="member-status ${m.paid ? 'member-paid' : 'member-pending'}">${m.paid ? '✓ Payé' : '⏳ En attente'}</span>
-        ${t.userRole === 'admin' && !m.paid ? `<button class="btn-icon" style="color:var(--color-primary)" onclick="TontineDetail.recordPayment(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>` : ''}
+        ${statusHtml}
+        ${payBtn}
+        ${paymentAdminBtns}
+        ${manageBtns}
       `;
       membersList.appendChild(div);
     });
@@ -610,9 +647,120 @@ const TontineDetail = {
     }
   },
 
+  /* Affiche comment payer directement l'admin (numéro Mobile Money personnel),
+     puis laisse le membre déclarer son paiement — l'app ne touche jamais l'argent. */
+  payMobileMoney(tontineId) {
+    const t = App.currentTontine;
+    if (!t.momoNumber || !t.momoOperator) {
+      Toast.show("L'administrateur n'a pas encore renseigné de numéro Mobile Money pour cette tontine.", 'warning');
+      return;
+    }
+    const opLabel = t.momoOperator === 'orange' ? 'Orange Money' : 'MTN Mobile Money';
+    const ussdCode = t.momoOperator === 'orange' ? '#150#' : '*126#';
+    const dialHref = `tel:${encodeURIComponent(ussdCode)}`;
+    const formattedNumber = t.momoNumber.replace(/(\d{3})(?=\d)/g, '$1 ').trim();
+
+    Modal.open(`Payer via ${opLabel}`, `
+      <div class="form-group">
+        <p style="font-size:var(--fs-sm);color:var(--color-text-2);margin-bottom:12px">
+          Cette tontine ne passe par aucun intermédiaire : votre cotisation part directement de votre téléphone vers celui de l'administrateur.
+        </p>
+        <label class="form-label">1. Numéro à créditer</label>
+        <div class="invite-code-box">
+          <span>${formattedNumber}</span>
+          <button class="btn-icon" onclick="UI.copyText('${t.momoNumber}')">
+            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">2. Montant à envoyer</label>
+        <p style="font-size:var(--fs-lg);font-weight:700;color:var(--color-primary)">${UI.formatAmount(t.amount)}</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label">3. Composez le code ${opLabel}</label>
+        <a href="${dialHref}" class="btn-primary btn-full" style="text-decoration:none;display:block;text-align:center;margin-top:6px">📞 Composer ${ussdCode}</a>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-top:6px">
+          Choisissez "Transfert d'argent", entrez le numéro et le montant ci-dessus, puis validez avec votre code secret.
+        </p>
+      </div>
+      <div class="form-group">
+        <button class="btn-secondary btn-full" id="btn-confirm-momo-paid">✓ J'ai envoyé le paiement</button>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-top:6px;text-align:center">
+          L'administrateur devra confirmer la réception avant que votre cotisation soit validée.
+        </p>
+      </div>
+    `);
+
+    document.getElementById('btn-confirm-momo-paid').addEventListener('click', async () => {
+      Modal.close();
+      const res = await API.request('declarePayment', { tontineId: t.id });
+      if (res.success) {
+        Toast.show(res.message || 'Déclaration envoyée !', 'success');
+        this.openById(t.id);
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
+      }
+    });
+  },
+
+  async rejectPayment(memberId, memberName) {
+    const confirmed = await Modal.confirm(
+      `Refuser la déclaration de ${memberName} ?`,
+      "À utiliser si vous n'avez pas retrouvé ce paiement sur votre compte Mobile Money. Le membre pourra redéclarer.",
+      'Refuser'
+    );
+    if (!confirmed) return;
+    const res = await API.request('rejectPayment', { tontineId: App.currentTontine.id, memberId });
+    if (res.success) {
+      Toast.show('Déclaration refusée.', 'success');
+      this.openById(App.currentTontine.id);
+    } else {
+      Toast.show(res.message || 'Erreur', 'error');
+    }
+  },
+
+  async updateMemberRole(memberId, role, memberName) {
+    const label = role === 'admin' ? 'nommer administrateur' : 'retirer les droits admin de';
+    const confirmed = await Modal.confirm(`Confirmer : ${label} ${memberName} ?`, '', 'Confirmer');
+    if (!confirmed) return;
+    const res = await API.request('updateMemberRole', { tontineId: App.currentTontine.id, memberId, role });
+    if (res.success) {
+      Toast.show(res.message || 'Rôle mis à jour.', 'success');
+      this.openById(App.currentTontine.id);
+    } else {
+      Toast.show(res.message || 'Erreur', 'error');
+    }
+  },
+
+  async removeMember(memberId, memberName) {
+    const confirmed = await Modal.confirm(
+      `Retirer ${memberName} de la tontine ?`,
+      'Cette personne perdra immédiatement l\'accès à cette tontine. Cette action est irréversible.',
+      'Retirer'
+    );
+    if (!confirmed) return;
+    const res = await API.request('removeMember', { tontineId: App.currentTontine.id, memberId });
+    if (res.success) {
+      Toast.show(res.message || 'Membre retiré.', 'success');
+      this.openById(App.currentTontine.id);
+    } else {
+      Toast.show(res.message || 'Erreur', 'error');
+    }
+  },
+
   async openSettings() {
     const t = App.currentTontine;
     Modal.open('Paramètres de la tontine', `
+      <div class="form-group">
+        <label class="form-label">Nom de la tontine</label>
+        <input type="text" class="form-input" id="edit-tontine-name" value="${(t.name || '').replace(/"/g, '&quot;')}" maxlength="60" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea class="form-input" id="edit-tontine-desc" rows="2" maxlength="200">${t.description || ''}</textarea>
+        <button class="btn-secondary btn-full mt" id="btn-save-tontine-info">Enregistrer les modifications</button>
+      </div>
       <div class="form-group">
         <label class="form-label">Code d'invitation</label>
         <div class="invite-code-box">
@@ -629,6 +777,18 @@ const TontineDetail = {
         </p>
       </div>
       <div class="form-group">
+        <label class="form-label">Numéro Mobile Money (pour recevoir les cotisations)</label>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-bottom:8px">
+          Ce numéro sera affiché aux membres pour qu'ils vous envoient directement leur cotisation. Tontines Facile ne détient jamais cet argent.
+        </p>
+        <select class="form-input" id="momo-operator" style="margin-bottom:8px">
+          <option value="mtn" ${t.momoOperator === 'mtn' || !t.momoOperator ? 'selected' : ''}>MTN Mobile Money</option>
+          <option value="orange" ${t.momoOperator === 'orange' ? 'selected' : ''}>Orange Money</option>
+        </select>
+        <input type="tel" class="form-input" id="momo-number" placeholder="6XXXXXXXX" value="${t.momoNumber || ''}" maxlength="9" />
+        <button class="btn-secondary btn-full mt" id="btn-save-momo">Enregistrer le numéro</button>
+      </div>
+      <div class="form-group">
         <label class="form-label" style="color:var(--color-red)">Zone de danger</label>
         <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-bottom:8px">
           ⚠️ Fermer une tontine est irréversible. Tous les membres seront notifiés.
@@ -636,6 +796,38 @@ const TontineDetail = {
         <button class="btn-danger btn-full" id="btn-close-tontine">🔒 Fermer définitivement la tontine</button>
       </div>
     `);
+
+    document.getElementById('btn-save-tontine-info')?.addEventListener('click', async () => {
+      const name = document.getElementById('edit-tontine-name').value.trim();
+      const description = document.getElementById('edit-tontine-desc').value.trim();
+      if (!name) { Toast.show('Le nom ne peut pas être vide.', 'error'); return; }
+      const res = await API.request('updateTontine', { tontineId: t.id, name, description });
+      if (res.success) {
+        Toast.show('Tontine mise à jour !', 'success');
+        Modal.close();
+        this.openById(t.id);
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
+      }
+    });
+
+    document.getElementById('btn-save-momo')?.addEventListener('click', async () => {
+      const momoOperator = document.getElementById('momo-operator').value;
+      const momoNumber = document.getElementById('momo-number').value.trim();
+      if (!/^6\d{8}$/.test(momoNumber)) {
+        Toast.show('Numéro invalide (9 chiffres, commence par 6).', 'error');
+        return;
+      }
+      const res = await API.request('updateTontineMomo', { tontineId: t.id, momoOperator, momoNumber });
+      if (res.success) {
+        Toast.show('Numéro Mobile Money enregistré !', 'success');
+        t.momoOperator = res.data.momoOperator;
+        t.momoNumber = res.data.momoNumber;
+        Modal.close();
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
+      }
+    });
 
     document.getElementById('btn-close-tontine')?.addEventListener('click', async () => {
       if (!confirm('Êtes-vous sûr de vouloir fermer cette tontine ? Cette action est irréversible.')) return;
@@ -1868,7 +2060,8 @@ function setupEventListeners() {
     const icons = {
       payment_reminder: '💰', member: '👤', payment_confirmed: '✅', admin: '📢', system: '🔄',
       join_request: '🙋', approved: '🎉', rejected: '🚫', disbursement: '🎁',
-      contact_request: '🤝', contact_accepted: '🤝'
+      contact_request: '🤝', contact_accepted: '🤝',
+      payment_declared: '🕒', payment_rejected: '⚠️', role_changed: '👑'
     };
     const html = notifs.map((n, i) => `
       <div class="activity-item activity-clickable" data-notif-index="${i}" style="cursor:pointer">

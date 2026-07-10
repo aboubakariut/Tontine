@@ -67,6 +67,10 @@ define('MOBILE_MONEY_PROVIDER',   getenv('MOBILE_MONEY_PROVIDER') ?: '');
 define('MOBILE_MONEY_API_KEY',    getenv('MOBILE_MONEY_API_KEY') ?: '');
 define('MOBILE_MONEY_API_SECRET', getenv('MOBILE_MONEY_API_SECRET') ?: '');
 
+// Mobile Money : chaque tontine utilise le numéro personnel de son admin
+// (renseigné en base, colonnes momo_operator/momo_number). Aucune clé API
+// n'est nécessaire — l'app ne détient jamais aucun fonds.
+
 // SMS
 define('SMS_PROVIDER',      getenv('SMS_PROVIDER') ?: '');
 define('SMS_ACCOUNT_SID',   getenv('SMS_ACCOUNT_SID') ?: '');
