@@ -1186,7 +1186,7 @@ try {
             if (!preg_match('/^6[5-9]\d{7}$/', $number)) error('Numéro camerounais invalide (9 chiffres, commence par 6).');
 
             DB::q("UPDATE tontines SET momo_operator = ?, momo_number = ? WHERE id = ?", [$operator, $number, $tid]);
-            audit('tontine', 'Numéro Mobile Money mis à jour', "$operator — $number", $user['id'], $tid);
+            audit('admin', 'Numéro Mobile Money mis à jour', "$operator — $number", $user['id'], $tid);
             success(['momoOperator' => $operator, 'momoNumber' => $number], 'Numéro enregistré !');
         }
 
