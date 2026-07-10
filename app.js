@@ -1555,6 +1555,9 @@ const Chat = {
   pollTimer: null,
   listPollTimer: null,
   lastMessageId: 0,
+  renderedIds: null,
+  _fetchInFlight: false,
+  _sending: false,
 
   init() {
     const input = document.getElementById('chat-message-input');
@@ -1738,6 +1741,9 @@ const Chat = {
     this.currentConversationId = conversationId;
     this.currentTitle = title || 'Discussion';
     this.lastMessageId = 0;
+    this.renderedIds = new Set();
+    this._fetchInFlight = false;
+    this._sending = false;
     Nav.go('chat-thread', this.currentTitle);
     RouteMemory.save('chat-thread', this.currentTitle, { conversationId, avatar, avatarPhoto });
     document.getElementById('chat-messages-list').innerHTML = '<div class="empty-state small"><p>Chargement…</p></div>';
@@ -1751,24 +1757,38 @@ const Chat = {
 
   async fetchMessages(initial) {
     if (!this.currentConversationId) return;
-    const res = await API.request('getMessages', {
-      conversationId: this.currentConversationId,
-      sinceId: initial ? 0 : this.lastMessageId
-    });
-    if (!res.success) return;
-    const list = document.getElementById('chat-messages-list');
-    if (initial) list.innerHTML = '';
-    if (!res.data.length) {
-      if (initial) list.innerHTML = '<div class="empty-state small"><p>Dites bonjour 👋</p></div>';
-      return;
+    /* Empêche deux requêtes simultanées (ex: polling + envoi) de retomber
+       sur les mêmes messages avant que lastMessageId n'ait été mis à jour —
+       c'est ce qui causait l'affichage en double. */
+    if (this._fetchInFlight) return;
+    this._fetchInFlight = true;
+    try {
+      const res = await API.request('getMessages', {
+        conversationId: this.currentConversationId,
+        sinceId: initial ? 0 : this.lastMessageId
+      });
+      if (!res.success) return;
+      const list = document.getElementById('chat-messages-list');
+      if (initial) { list.innerHTML = ''; this.renderedIds = new Set(); }
+      if (!res.data.length) {
+        if (initial) list.innerHTML = '<div class="empty-state small"><p>Dites bonjour 👋</p></div>';
+        return;
+      }
+      const wasEmpty = list.querySelector('.empty-state');
+      if (wasEmpty) list.innerHTML = '';
+      let appended = false;
+      res.data.forEach(m => {
+        this.lastMessageId = Math.max(this.lastMessageId, m.id);
+        /* Sécurité supplémentaire : ne jamais afficher deux fois le même message */
+        if (this.renderedIds.has(m.id)) return;
+        this.renderedIds.add(m.id);
+        list.appendChild(this.renderBubble(m));
+        appended = true;
+      });
+      if (appended) list.scrollTop = list.scrollHeight;
+    } finally {
+      this._fetchInFlight = false;
     }
-    const wasEmpty = list.querySelector('.empty-state');
-    if (wasEmpty) list.innerHTML = '';
-    res.data.forEach(m => {
-      this.lastMessageId = Math.max(this.lastMessageId, m.id);
-      list.appendChild(this.renderBubble(m));
-    });
-    list.scrollTop = list.scrollHeight;
   },
 
   renderBubble(m) {
@@ -1798,19 +1818,25 @@ const Chat = {
   },
 
   async send() {
+    if (this._sending) return;
     const input = document.getElementById('chat-message-input');
     const body = input.value.trim();
     if (!body || !this.currentConversationId) return;
+    this._sending = true;
     input.value = '';
     input.style.height = 'auto';
     input.dispatchEvent(new Event('input'));
-    const res = await API.request('sendMessage', { conversationId: this.currentConversationId, body });
-    if (res.success) {
-      await this.fetchMessages(false);
-    } else {
-      Toast.show(res.message || 'Message non envoyé', 'error');
-      input.value = body;
-      input.dispatchEvent(new Event('input'));
+    try {
+      const res = await API.request('sendMessage', { conversationId: this.currentConversationId, body });
+      if (res.success) {
+        await this.fetchMessages(false);
+      } else {
+        Toast.show(res.message || 'Message non envoyé', 'error');
+        input.value = body;
+        input.dispatchEvent(new Event('input'));
+      }
+    } finally {
+      this._sending = false;
     }
   }
 };
