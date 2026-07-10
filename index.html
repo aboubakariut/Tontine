@@ -62,6 +62,10 @@
         <span>Tontines Facile</span>
       </div>
       <h2 class="topbar-title hidden" id="topbar-title"></h2>
+      <div class="topbar-chat-info hidden" id="topbar-chat-info">
+        <div class="avatar-sm" id="topbar-chat-avatar"></div>
+        <span id="topbar-chat-name"></span>
+      </div>
     </div>
     <div class="topbar-right">
       <button class="btn-icon notif-btn" id="btn-notif" aria-label="Notifications">
@@ -827,7 +831,11 @@
 
     <!-- ── PAGE: CHAT (liste des conversations) ── -->
     <section class="page" id="page-chat">
-      <div class="page-content">
+      <div class="page-content chat-list-content">
+        <div class="search-bar chat-search-bar">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2" fill="none"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="text" placeholder="Rechercher une conversation..." id="search-conversations" />
+        </div>
         <div id="chat-conversations-list"></div>
       </div>
     </section>

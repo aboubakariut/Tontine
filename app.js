@@ -201,6 +201,7 @@ const Nav = {
     const isRoot = ['dashboard', 'my-tontines', 'create-tontine', 'join-tontine', 'profile', 'settings', 'auth'].includes(page);
     const topbarLogo = document.getElementById('topbar-logo');
     const topbarTitle = document.getElementById('topbar-title');
+    const topbarChatInfo = document.getElementById('topbar-chat-info');
     const btnBack = document.getElementById('btn-back');
     const topbar = document.getElementById('topbar');
     const bottomNav = document.getElementById('bottom-nav');
@@ -220,14 +221,24 @@ const Nav = {
       document.getElementById('app').classList.remove('chat-open');
     }
 
-    if (isRoot && page !== 'auth') {
+    if (page === 'chat-thread') {
+      /* En conversation, la topbar affiche l'avatar + le nom du contact,
+         comme dans WhatsApp, plutôt qu'un simple titre texte */
+      topbarLogo.classList.add('hidden');
+      topbarTitle.classList.add('hidden');
+      topbarChatInfo?.classList.remove('hidden');
+      btnBack.style.display = 'flex';
+      if (App.currentPage !== page) this.history.push(App.currentPage);
+    } else if (isRoot && page !== 'auth') {
       topbarLogo.classList.remove('hidden');
       topbarTitle.classList.add('hidden');
+      topbarChatInfo?.classList.add('hidden');
       btnBack.style.display = 'none';
     } else if (page !== 'auth') {
       topbarLogo.classList.add('hidden');
       topbarTitle.classList.remove('hidden');
       topbarTitle.textContent = title;
+      topbarChatInfo?.classList.add('hidden');
       btnBack.style.display = 'flex';
       if (App.currentPage !== page) this.history.push(App.currentPage);
     }
@@ -1555,9 +1566,11 @@ const Chat = {
   pollTimer: null,
   listPollTimer: null,
   lastMessageId: 0,
+  lastRenderedDate: null,
   renderedIds: null,
   _fetchInFlight: false,
   _sending: false,
+  _conversations: [],
 
   init() {
     const input = document.getElementById('chat-message-input');
@@ -1605,6 +1618,15 @@ const Chat = {
 
     /* Message vocal */
     document.getElementById('btn-chat-record').addEventListener('click', () => this.toggleRecording());
+
+    /* Recherche dans la liste des conversations (comme WhatsApp) */
+    document.getElementById('search-conversations')?.addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      const filtered = !q ? this._conversations : this._conversations.filter(c =>
+        (c.title || '').toLowerCase().includes(q) || (c.last_message || '').toLowerCase().includes(q)
+      );
+      this.renderConversationsList(filtered);
+    });
   },
 
   mediaRecorder: null,
@@ -1683,14 +1705,21 @@ const Chat = {
     const list = document.getElementById('chat-conversations-list');
     if (list) list.innerHTML = UI.skeletonRows(4);
     const res = await API.request('getConversations');
+    if (!res.success) { if (list) list.innerHTML = ''; return; }
+    this._conversations = res.data;
+    this.renderConversationsList(res.data);
+  },
+
+  renderConversationsList(data) {
+    const list = document.getElementById('chat-conversations-list');
     list.innerHTML = '';
-    if (!res.success || !res.data.length) {
+    if (!data.length) {
       list.innerHTML = UI.emptyState('Aucune conversation pour le moment. Démarrez-en une depuis vos contacts !', 'contacts', 'Voir mes contacts');
       this.updateUnreadBadge(0);
       return;
     }
     let totalUnread = 0;
-    res.data.forEach(c => {
+    data.forEach(c => {
       totalUnread += c.unread || 0;
       list.appendChild(this.renderConversationItem(c));
     });
@@ -1699,7 +1728,7 @@ const Chat = {
 
   renderConversationItem(c) {
     const div = document.createElement('div');
-    div.className = 'conversation-item';
+    div.className = 'conversation-item' + (c.unread ? ' has-unread' : '');
     const photo = c.avatar_photo;
     const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
     const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
@@ -1741,11 +1770,29 @@ const Chat = {
     this.currentConversationId = conversationId;
     this.currentTitle = title || 'Discussion';
     this.lastMessageId = 0;
+    this.lastRenderedDate = null;
     this.renderedIds = new Set();
     this._fetchInFlight = false;
     this._sending = false;
     Nav.go('chat-thread', this.currentTitle);
     RouteMemory.save('chat-thread', this.currentTitle, { conversationId, avatar, avatarPhoto });
+
+    /* Avatar + nom du contact dans la topbar, comme WhatsApp */
+    const avatarEl = document.getElementById('topbar-chat-avatar');
+    const nameEl = document.getElementById('topbar-chat-name');
+    if (avatarEl && nameEl) {
+      nameEl.textContent = this.currentTitle;
+      if (avatarPhoto) {
+        avatarEl.classList.add('has-photo');
+        avatarEl.style.backgroundImage = `url('${avatarPhoto}')`;
+        avatarEl.textContent = '';
+      } else {
+        avatarEl.classList.remove('has-photo');
+        avatarEl.style.backgroundImage = '';
+        avatarEl.textContent = (avatar && avatar.length <= 4) ? avatar : this.currentTitle.slice(0, 2).toUpperCase();
+      }
+    }
+
     document.getElementById('chat-messages-list').innerHTML = '<div class="empty-state small"><p>Chargement…</p></div>';
     await this.fetchMessages(true);
     this.pollTimer = setInterval(() => this.fetchMessages(false), 3000);
@@ -1769,7 +1816,7 @@ const Chat = {
       });
       if (!res.success) return;
       const list = document.getElementById('chat-messages-list');
-      if (initial) { list.innerHTML = ''; this.renderedIds = new Set(); }
+      if (initial) { list.innerHTML = ''; this.renderedIds = new Set(); this.lastRenderedDate = null; }
       if (!res.data.length) {
         if (initial) list.innerHTML = '<div class="empty-state small"><p>Dites bonjour 👋</p></div>';
         return;
@@ -1782,6 +1829,14 @@ const Chat = {
         /* Sécurité supplémentaire : ne jamais afficher deux fois le même message */
         if (this.renderedIds.has(m.id)) return;
         this.renderedIds.add(m.id);
+        const dateKey = m.created_at ? m.created_at.slice(0, 10) : null;
+        if (dateKey && dateKey !== this.lastRenderedDate) {
+          const sep = document.createElement('div');
+          sep.className = 'chat-date-sep';
+          sep.textContent = this.formatDateSeparator(dateKey);
+          list.appendChild(sep);
+          this.lastRenderedDate = dateKey;
+        }
         list.appendChild(this.renderBubble(m));
         appended = true;
       });
@@ -1789,6 +1844,16 @@ const Chat = {
     } finally {
       this._fetchInFlight = false;
     }
+  },
+
+  /* "Aujourd'hui" / "Hier" / date complète — comme les séparateurs WhatsApp */
+  formatDateSeparator(dateKey) {
+    const d = new Date(dateKey + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    if (d.getTime() === today.getTime()) return "Aujourd'hui";
+    if (d.getTime() === yesterday.getTime()) return 'Hier';
+    return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
   },
 
   renderBubble(m) {
