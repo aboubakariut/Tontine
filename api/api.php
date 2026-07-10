@@ -223,6 +223,13 @@ class DB {
         if ($bodyCol->fetchColumn() === 'NO') {
             $pdo->exec("ALTER TABLE messages MODIFY body TEXT NULL");
         }
+
+        /* ── Mobile Money de l'admin (déclaratif, non-custodial) ──
+           L'app ne détient jamais de fonds : chaque tontine peut avoir un
+           numéro Mobile Money (celui de l'admin) affiché aux membres pour
+           qu'ils envoient directement leur cotisation en pair-à-pair. */
+        self::addColumnIfMissing('tontines', 'momo_operator', "VARCHAR(10) NULL"); /* mtn | orange */
+        self::addColumnIfMissing('tontines', 'momo_number', "VARCHAR(15) NULL");
     }
 
     public static function migrate(): void {
@@ -500,6 +507,32 @@ function notify(int $userId, string $type, string $title, string $body = '', ?in
     );
 }
 
+/* Enregistre une cotisation comme payée — utilisée à la fois par la
+   confirmation manuelle (admin) et par la confirmation Mobile Money
+   (Monetbil), pour ne jamais dupliquer la logique métier. */
+function finalizeCotisationPayment(array $t, array $targetMember, int $targetUserId, int $recordedBy, string $method = 'manual'): int {
+    $already = DB::row("SELECT id FROM payments WHERE tontine_id=? AND user_id=? AND tour=?", [$t['id'], $targetUserId, $t['current_tour']]);
+    if ($already) return (int)$already['id'];
+
+    $payId = DB::insert(
+        "INSERT INTO payments (tontine_id, user_id, recorded_by, tour, amount, status, paid_at)
+         VALUES (?,?,?,?,?,'paid',NOW())",
+        [$t['id'], $targetUserId, $recordedBy, $t['current_tour'], (float)$t['amount']]
+    );
+    DB::q("UPDATE tontines SET pot = pot + ? WHERE id = ?", [(float)$t['amount'], $t['id']]);
+
+    $name = $targetMember['firstname'] . ' ' . $targetMember['lastname'];
+    $methodLabel = $method === 'mobile_money' ? ' (Mobile Money)' : '';
+    audit('payment', 'Paiement enregistré' . $methodLabel,
+        "$name — " . number_format((float)$t['amount'], 0, ',', ' ') . " FCFA (Tour " . $t['current_tour'] . ")",
+        $recordedBy, $t['id']);
+
+    notify($targetUserId, 'payment_confirmed', 'Paiement confirmé',
+        'Votre mise de ' . number_format((float)$t['amount'], 0, ',', ' ') . ' FCFA a été enregistrée' . $methodLabel . '.', $t['id']);
+
+    return $payId;
+}
+
 /* ══════════════════════════════════════════════════════════════════
    VALIDATION
    ══════════════════════════════════════════════════════════════════ */
@@ -562,6 +595,8 @@ function formatTontineResponse(array $t, int $userId): array {
     $t['nextPaymentDate']  = $t['next_payment_date'] ? date('d/m/Y', strtotime($t['next_payment_date'])) : '—';
     $t['badgeText']        = $t['badge_text'];
     $t['userRole']         = $t['user_role'] ?? null;
+    $t['momoOperator']     = $t['momo_operator'] ?? null;
+    $t['momoNumber']       = $t['momo_number'] ?? null;
 
     /* Members */
     $members = DB::rows(
@@ -579,7 +614,8 @@ function formatTontineResponse(array $t, int $userId): array {
             "SELECT status FROM payments WHERE tontine_id = ? AND user_id = ? AND tour = ?",
             [$t['id'], $m['id'], $t['current_tour']]
         );
-        $m['paid'] = $pay && $m['status'] === 'paid';
+        $m['paid'] = $pay && $pay['status'] === 'paid';
+        $m['paymentPending'] = $pay && $pay['status'] === 'pending';
         $m['name'] = $m['firstname'] . ' ' . $m['lastname'];
     }
     $t['members'] = $members;
@@ -953,6 +989,70 @@ try {
         }
 
         /* ────────────────────────────────────
+           MEMBRES : rôle (nommer/retirer un admin) et retrait
+           ──────────────────────────────────── */
+        case 'updateMemberRole': {
+            $tid   = (int)($input['tontineId'] ?? 0);
+            $admin = Auth::requireAdmin($input, $tid);
+            $mid   = (int)($input['memberId'] ?? 0);
+            $role  = $input['role'] ?? '';
+            if (!$mid) error('Membre manquant.');
+            if (!in_array($role, ['admin', 'member'], true)) error('Rôle invalide.');
+
+            $target = DB::row(
+                "SELECT m.*, u.firstname, u.lastname FROM memberships m JOIN users u ON u.id=m.user_id
+                 WHERE m.tontine_id=? AND m.user_id=? AND m.status='active'",
+                [$tid, $mid]
+            );
+            if (!$target) error('Membre introuvable.');
+
+            if ($role === 'member' && $target['role'] === 'admin') {
+                $adminCount = DB::row("SELECT COUNT(*) as n FROM memberships WHERE tontine_id=? AND role='admin' AND status='active'", [$tid]);
+                if ((int)$adminCount['n'] <= 1) error('Impossible : il doit rester au moins un administrateur.');
+            }
+
+            DB::q("UPDATE memberships SET role=? WHERE id=?", [$role, $target['id']]);
+            $name = trim($target['firstname'] . ' ' . $target['lastname']);
+            $label = $role === 'admin' ? 'nommé(e) administrateur' : 'retiré(e) des administrateurs';
+            audit('admin', "Membre $label", $name, $admin['id'], $tid);
+            notify(
+                $mid,
+                'role_changed',
+                $role === 'admin' ? 'Vous êtes administrateur !' : 'Changement de rôle',
+                $role === 'admin'
+                    ? 'Vous pouvez désormais gérer cette tontine (membres, paiements, paramètres).'
+                    : 'Vous n\'êtes plus administrateur de cette tontine.',
+                $tid
+            );
+            success(null, "$name a été $label.");
+        }
+
+        case 'removeMember': {
+            $tid   = (int)($input['tontineId'] ?? 0);
+            $admin = Auth::requireAdmin($input, $tid);
+            $mid   = (int)($input['memberId'] ?? 0);
+            if (!$mid) error('Membre manquant.');
+            if ($mid === $admin['id']) error('Vous ne pouvez pas vous retirer vous-même. Nommez un autre administrateur d\'abord, ou fermez la tontine.');
+
+            $target = DB::row(
+                "SELECT m.*, u.firstname, u.lastname FROM memberships m JOIN users u ON u.id=m.user_id
+                 WHERE m.tontine_id=? AND m.user_id=? AND m.status='active'",
+                [$tid, $mid]
+            );
+            if (!$target) error('Membre introuvable.');
+
+            DB::q("UPDATE memberships SET status='left' WHERE id=?", [$target['id']]);
+            DB::q("UPDATE tontines SET current_members = GREATEST(current_members - 1, 0) WHERE id = ?", [$tid]);
+
+            $name = trim($target['firstname'] . ' ' . $target['lastname']);
+            audit('admin', 'Membre retiré', $name, $admin['id'], $tid);
+            notify($mid, 'member', 'Retiré(e) de la tontine',
+                'Vous avez été retiré(e) de la tontine par l\'administrateur.', $tid);
+
+            success(null, "$name a été retiré(e) de la tontine.");
+        }
+
+        /* ────────────────────────────────────
            MEMBERSHIPS: APPROVE / REJECT
            ──────────────────────────────────── */
         case 'approveMember': {
@@ -980,44 +1080,114 @@ try {
            PAYMENTS: RECORD
            ──────────────────────────────────── */
         case 'recordPayment': {
-            $user = Auth::requireAuth($input);
-            $tid  = (int)($input['tontineId'] ?? 0);
-            $mid  = (int)($input['memberId'] ?? 0);
+            /* Validation exclusivement par l'administrateur — que ce soit pour
+               confirmer directement un paiement (ex: reçu en cash) ou pour
+               approuver une déclaration envoyée par un membre. */
+            $tid   = (int)($input['tontineId'] ?? 0);
+            $admin = Auth::requireAdmin($input, $tid);
+            $mid   = (int)($input['memberId'] ?? 0);
+            if (!$mid) error('Membre manquant.');
 
             $t = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
             if (!$t) error('Tontine introuvable.');
 
-            /* Admin OR self-payment */
-            $isAdmin = (bool)DB::row("SELECT id FROM memberships WHERE tontine_id=? AND user_id=? AND role='admin' AND status='active'", [$tid, $user['id']]);
-            $targetUserId = $mid ?: $user['id'];
-            if (!$isAdmin && $targetUserId !== $user['id']) error('Non autorisé.', 403);
-
-            /* Check member */
-            $targetMember = DB::row("SELECT u.* FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tontine_id=? AND m.user_id=? AND m.status='active'", [$tid, $targetUserId]);
+            $targetMember = DB::row("SELECT u.* FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tontine_id=? AND m.user_id=? AND m.status='active'", [$tid, $mid]);
             if (!$targetMember) error('Membre introuvable dans cette tontine.');
 
-            /* Already paid this tour? */
-            $already = DB::row("SELECT id FROM payments WHERE tontine_id=? AND user_id=? AND tour=?", [$tid, $targetUserId, $t['current_tour']]);
-            if ($already) error('Ce membre a déjà payé pour ce tour.');
+            $existing = DB::row("SELECT * FROM payments WHERE tontine_id=? AND user_id=? AND tour=?", [$tid, $mid, $t['current_tour']]);
+            if ($existing && $existing['status'] === 'paid') error('Ce membre a déjà payé pour ce tour.');
 
-            $payId = DB::insert(
-                "INSERT INTO payments (tontine_id, user_id, recorded_by, tour, amount, status, paid_at)
-                 VALUES (?,?,?,?,?,'paid',NOW())",
-                [$tid, $targetUserId, $user['id'], $t['current_tour'], (float)$t['amount']]
-            );
+            $name = trim($targetMember['firstname'] . ' ' . $targetMember['lastname']);
+            if ($existing) {
+                /* Approuve la déclaration existante du membre (pending/cancelled/late) */
+                DB::q("UPDATE payments SET status='paid', paid_at=NOW() WHERE id=?", [$existing['id']]);
+                DB::q("UPDATE tontines SET pot = pot + ? WHERE id = ?", [(float)$t['amount'], $tid]);
+                $payId = (int) $existing['id'];
+                audit('payment', 'Paiement validé', "$name — " . number_format((float)$t['amount'], 0, ',', ' ') . " FCFA (Tour {$t['current_tour']})", $admin['id'], $tid);
+                notify($mid, 'payment_confirmed', 'Paiement confirmé',
+                    'Votre mise de ' . number_format((float)$t['amount'], 0, ',', ' ') . ' FCFA a été validée par l\'administrateur.', $tid);
+            } else {
+                $payId = finalizeCotisationPayment($t, $targetMember, $mid, $admin['id'], 'manual');
+            }
+            success(['paymentId' => $payId], 'Paiement confirmé avec succès !');
+        }
 
-            /* Update pot */
-            DB::q("UPDATE tontines SET pot = pot + ? WHERE id = ?", [(float)$t['amount'], $tid]);
+        case 'declarePayment': {
+            /* Le membre déclare avoir envoyé sa cotisation — reste "en attente"
+               tant que l'administrateur n'a pas confirmé la réception. */
+            $user = Auth::requireAuth($input);
+            $tid  = (int)($input['tontineId'] ?? 0);
+            $t = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
+            if (!$t) error('Tontine introuvable.');
 
-            $name = $targetMember['firstname'] . ' ' . $targetMember['lastname'];
-            audit('payment', 'Paiement enregistré',
-                "$name — " . number_format((float)$t['amount'], 0, ',', ' ') . " FCFA (Tour " . $t['current_tour'] . ")",
-                $user['id'], $tid);
+            $member = DB::row("SELECT u.* FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tontine_id=? AND m.user_id=? AND m.status='active'", [$tid, $user['id']]);
+            if (!$member) error('Vous n\'êtes pas membre actif de cette tontine.');
 
-            notify($targetUserId, 'payment_confirmed', 'Paiement confirmé',
-                'Votre mise de ' . number_format((float)$t['amount'], 0, ',', ' ') . ' FCFA a été enregistrée.', $tid);
+            $existing = DB::row("SELECT * FROM payments WHERE tontine_id=? AND user_id=? AND tour=?", [$tid, $user['id'], $t['current_tour']]);
+            if ($existing && $existing['status'] === 'paid') error('Vous avez déjà payé pour ce tour.');
+            if ($existing && $existing['status'] === 'pending') error('Votre paiement est déjà en attente de validation par l\'administrateur.');
 
-            success(['paymentId' => $payId], 'Paiement enregistré avec succès !');
+            if ($existing) {
+                DB::q("UPDATE payments SET status='pending', recorded_by=?, paid_at=NULL WHERE id=?", [$user['id'], $existing['id']]);
+                $payId = (int) $existing['id'];
+            } else {
+                $payId = DB::insert(
+                    "INSERT INTO payments (tontine_id, user_id, recorded_by, tour, amount, status) VALUES (?,?,?,?,?,'pending')",
+                    [$tid, $user['id'], $user['id'], $t['current_tour'], (float)$t['amount']]
+                );
+            }
+
+            $name = trim($member['firstname'] . ' ' . $member['lastname']);
+            audit('payment', 'Paiement déclaré (en attente de validation)',
+                "$name — " . number_format((float)$t['amount'], 0, ',', ' ') . " FCFA", $user['id'], $tid);
+
+            $admins = DB::rows("SELECT user_id FROM memberships WHERE tontine_id=? AND role='admin' AND status='active'", [$tid]);
+            foreach ($admins as $a) {
+                notify((int)$a['user_id'], 'payment_declared', 'Paiement à valider',
+                    "$name déclare avoir envoyé " . number_format((float)$t['amount'], 0, ',', ' ') . " FCFA. Confirmez la réception.", $tid);
+            }
+
+            success(['paymentId' => $payId], "Déclaration envoyée ! En attente de validation par l'administrateur.");
+        }
+
+        case 'rejectPayment': {
+            $tid   = (int)($input['tontineId'] ?? 0);
+            $admin = Auth::requireAdmin($input, $tid);
+            $mid   = (int)($input['memberId'] ?? 0);
+            if (!$mid) error('Membre manquant.');
+
+            $t = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
+            if (!$t) error('Tontine introuvable.');
+
+            $existing = DB::row("SELECT * FROM payments WHERE tontine_id=? AND user_id=? AND tour=? AND status='pending'", [$tid, $mid, $t['current_tour']]);
+            if (!$existing) error('Aucune déclaration en attente pour ce membre.');
+
+            DB::q("UPDATE payments SET status='cancelled' WHERE id=?", [$existing['id']]);
+            audit('payment', 'Déclaration de paiement refusée', '', $admin['id'], $tid);
+            notify($mid, 'payment_rejected', 'Paiement non confirmé',
+                "L'administrateur n'a pas retrouvé votre paiement pour la tontine « {$t['name']} ». Vérifiez le montant et le numéro, puis redéclarez si besoin.", $tid);
+
+            success(null, 'Déclaration refusée.');
+        }
+
+        /* ────────────────────────────────────
+           MOBILE MONEY DE L'ADMIN (déclaratif)
+           L'app ne détient jamais de fonds : l'admin renseigne son propre
+           numéro, les membres l'utilisent pour envoyer directement (USSD),
+           puis déclarent leur paiement comme avant.
+           ──────────────────────────────────── */
+        case 'updateTontineMomo': {
+            $user = Auth::requireAdmin($input, (int)($input['tontineId'] ?? 0));
+            $tid  = (int)($input['tontineId'] ?? 0);
+            $operator = $input['momoOperator'] ?? '';
+            $number   = preg_replace('/\D/', '', $input['momoNumber'] ?? '');
+
+            if (!in_array($operator, ['mtn', 'orange'], true)) error('Opérateur invalide.');
+            if (!preg_match('/^6[5-9]\d{7}$/', $number)) error('Numéro camerounais invalide (9 chiffres, commence par 6).');
+
+            DB::q("UPDATE tontines SET momo_operator = ?, momo_number = ? WHERE id = ?", [$operator, $number, $tid]);
+            audit('tontine', 'Numéro Mobile Money mis à jour', "$operator — $number", $user['id'], $tid);
+            success(['momoOperator' => $operator, 'momoNumber' => $number], 'Numéro enregistré !');
         }
 
         /* ────────────────────────────────────
