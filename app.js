@@ -797,35 +797,59 @@ const TontineDetail = {
       </div>
     `);
 
-    document.getElementById('btn-save-tontine-info')?.addEventListener('click', async () => {
+    document.getElementById('btn-save-tontine-info')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
       const name = document.getElementById('edit-tontine-name').value.trim();
       const description = document.getElementById('edit-tontine-desc').value.trim();
       if (!name) { Toast.show('Le nom ne peut pas être vide.', 'error'); return; }
-      const res = await API.request('updateTontine', { tontineId: t.id, name, description });
-      if (res.success) {
-        Toast.show('Tontine mise à jour !', 'success');
-        Modal.close();
-        this.openById(t.id);
-      } else {
-        Toast.show(res.message || 'Erreur', 'error');
+      if (btn.disabled) return;
+      const originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+      try {
+        const res = await API.request('updateTontine', { tontineId: t.id, name, description });
+        if (res.success) {
+          Toast.show('Tontine mise à jour !', 'success');
+          Modal.close();
+          this.openById(t.id);
+        } else {
+          Toast.show(res.message || 'Erreur', 'error');
+        }
+      } catch (err) {
+        Toast.show('Erreur réseau, réessayez.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
       }
     });
 
-    document.getElementById('btn-save-momo')?.addEventListener('click', async () => {
+    document.getElementById('btn-save-momo')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
       const momoOperator = document.getElementById('momo-operator').value;
       const momoNumber = document.getElementById('momo-number').value.trim();
       if (!/^6\d{8}$/.test(momoNumber)) {
         Toast.show('Numéro invalide (9 chiffres, commence par 6).', 'error');
         return;
       }
-      const res = await API.request('updateTontineMomo', { tontineId: t.id, momoOperator, momoNumber });
-      if (res.success) {
-        Toast.show('Numéro Mobile Money enregistré !', 'success');
-        t.momoOperator = res.data.momoOperator;
-        t.momoNumber = res.data.momoNumber;
-        Modal.close();
-      } else {
-        Toast.show(res.message || 'Erreur', 'error');
+      const originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+      try {
+        const res = await API.request('updateTontineMomo', { tontineId: t.id, momoOperator, momoNumber });
+        if (res.success) {
+          Toast.show('Numéro Mobile Money enregistré !', 'success');
+          t.momoOperator = res.data.momoOperator;
+          t.momoNumber = res.data.momoNumber;
+          Modal.close();
+        } else {
+          Toast.show(res.message || 'Erreur', 'error');
+        }
+      } catch (err) {
+        Toast.show('Erreur réseau, réessayez.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
       }
     });
 
