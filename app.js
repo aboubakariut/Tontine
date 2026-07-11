@@ -181,7 +181,7 @@ const API = {
 const Nav = {
   history: [],
 
-  go(page, title = '') {
+  go(page, title = '', fromPopstate = false) {
     /* Stoppe le rafraîchissement automatique des messages si on quitte le fil de discussion */
     if (page !== 'chat-thread' && typeof Chat !== 'undefined') Chat.stopPolling();
 
@@ -215,6 +215,12 @@ const Nav = {
       topbar.style.display = 'flex';
       bottomNav.style.display = 'none';
       document.getElementById('app').classList.add('chat-open');
+      /* Si on revient sur cette page via l'historique (précédente conversation
+         encore affichée), on relance le polling s'il n'est pas déjà actif */
+      if (typeof Chat !== 'undefined' && Chat.currentConversationId && !Chat.pollTimer) {
+        Chat.fetchMessages(false);
+        Chat.pollTimer = setInterval(() => Chat.fetchMessages(false), 3000);
+      }
     } else {
       topbar.style.display = 'flex';
       bottomNav.style.display = 'flex';
@@ -228,7 +234,7 @@ const Nav = {
       topbarTitle.classList.add('hidden');
       topbarChatInfo?.classList.remove('hidden');
       btnBack.style.display = 'flex';
-      if (App.currentPage !== page) this.history.push(App.currentPage);
+      if (App.currentPage !== page) this.history.push({ page: App.currentPage, title: App.currentTitle });
     } else if (isRoot && page !== 'auth') {
       topbarLogo.classList.remove('hidden');
       topbarTitle.classList.add('hidden');
@@ -240,21 +246,32 @@ const Nav = {
       topbarTitle.textContent = title;
       topbarChatInfo?.classList.add('hidden');
       btnBack.style.display = 'flex';
-      if (App.currentPage !== page) this.history.push(App.currentPage);
+      if (App.currentPage !== page) this.history.push({ page: App.currentPage, title: App.currentTitle });
     }
 
     App.currentPage = page;
+    App.currentTitle = title;
     window.scrollTo(0, 0);
     this.closeMenu();
 
     /* Mémorise la page courante pour la restaurer après un F5 (voir RouteMemory) */
     if (page !== 'auth') RouteMemory.save(page, title);
+
+    /* Synchronise avec l'historique RÉEL du navigateur : sans ceci, le bouton
+       retour physique/geste (Android) ou la souris arrière du navigateur ne
+       déclenchent jamais notre navigation interne — ils finissent par quitter
+       carrément l'application au lieu de revenir à l'écran précédent. On ne
+       pousse pas une nouvelle entrée quand ce go() vient lui-même d'un popstate,
+       sinon chaque retour recréerait une entrée "avant" et casserait la pile. */
+    if (page !== 'auth' && !fromPopstate) {
+      try { history.pushState({ tfNav: true }, '', location.href); } catch {}
+    }
   },
 
-  back() {
+  back(fromPopstate = false) {
     const prev = this.history.pop();
-    if (prev) this.go(prev);
-    else this.go('dashboard');
+    if (prev) this.go(prev.page, prev.title, fromPopstate);
+    else this.go('dashboard', '', fromPopstate);
   },
 
   closeMenu() {
@@ -1567,6 +1584,7 @@ const Chat = {
   listPollTimer: null,
   lastMessageId: 0,
   lastRenderedDate: null,
+  otherLastReadAt: null,
   renderedIds: null,
   _fetchInFlight: false,
   _sending: false,
@@ -1672,15 +1690,31 @@ const Chat = {
 
   async sendAttachment(type, dataUrl, name) {
     if (!this.currentConversationId) return;
-    const res = await API.request('sendMessage', {
-      conversationId: this.currentConversationId,
-      body: '',
-      attachmentType: type,
-      attachmentData: dataUrl,
-      attachmentName: name
-    });
-    if (res.success) await this.fetchMessages(false);
-    else Toast.show(res.message || 'Envoi impossible', 'error');
+    const list = document.getElementById('chat-messages-list');
+    list.querySelector('.empty-state')?.remove();
+    const pendingEl = this.renderBubble(
+      {
+        id: `pending-${Date.now()}`, sender_id: App.currentUser.id, body: '', created_at: null,
+        attachment_type: type, attachment_data: dataUrl, attachment_name: name
+      },
+      { pending: true }
+    );
+    list.appendChild(pendingEl);
+    list.scrollTop = list.scrollHeight;
+
+    try {
+      const res = await API.request('sendMessage', {
+        conversationId: this.currentConversationId,
+        body: '',
+        attachmentType: type,
+        attachmentData: dataUrl,
+        attachmentName: name
+      });
+      if (res.success) await this.fetchMessages(false);
+      else Toast.show(res.message || 'Envoi impossible', 'error');
+    } finally {
+      pendingEl.remove();
+    }
   },
 
   /* Rafraîchit périodiquement le badge de messages non lus, même en dehors
@@ -1771,6 +1805,7 @@ const Chat = {
     this.currentTitle = title || 'Discussion';
     this.lastMessageId = 0;
     this.lastRenderedDate = null;
+    this.otherLastReadAt = null;
     this.renderedIds = new Set();
     this._fetchInFlight = false;
     this._sending = false;
@@ -1815,16 +1850,19 @@ const Chat = {
         sinceId: initial ? 0 : this.lastMessageId
       });
       if (!res.success) return;
+      const messages = res.data.messages || [];
+      this.otherLastReadAt = res.data.otherLastReadAt || null;
       const list = document.getElementById('chat-messages-list');
       if (initial) { list.innerHTML = ''; this.renderedIds = new Set(); this.lastRenderedDate = null; }
-      if (!res.data.length) {
+      if (!messages.length) {
         if (initial) list.innerHTML = '<div class="empty-state small"><p>Dites bonjour 👋</p></div>';
+        this.updateTicks();
         return;
       }
       const wasEmpty = list.querySelector('.empty-state');
       if (wasEmpty) list.innerHTML = '';
       let appended = false;
-      res.data.forEach(m => {
+      messages.forEach(m => {
         this.lastMessageId = Math.max(this.lastMessageId, m.id);
         /* Sécurité supplémentaire : ne jamais afficher deux fois le même message */
         if (this.renderedIds.has(m.id)) return;
@@ -1841,6 +1879,7 @@ const Chat = {
         appended = true;
       });
       if (appended) list.scrollTop = list.scrollHeight;
+      this.updateTicks();
     } finally {
       this._fetchInFlight = false;
     }
@@ -1856,30 +1895,70 @@ const Chat = {
     return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
   },
 
-  renderBubble(m) {
+  renderBubble(m, opts = {}) {
     const div = document.createElement('div');
     const mine = String(m.sender_id) === String(App.currentUser?.id);
-    div.className = `chat-bubble ${mine ? 'mine' : 'theirs'}${m.attachment_type ? ' attachment' : ''}`;
+    div.className = `chat-bubble ${mine ? 'mine' : 'theirs'}${m.attachment_type ? ' attachment' : ''}${opts.pending ? ' pending' : ''}`;
+    div.dataset.id = m.id;
+    if (m.created_at) div.dataset.createdAt = m.created_at;
     const time = m.created_at ? new Date(m.created_at.replace(' ', 'T')).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
 
     let content = '';
     if (m.attachment_type === 'image') {
-      content = `<img class="chat-image" src="${m.attachment_data}" alt="${UI.escapeHtml(m.attachment_name || 'Photo')}" />`;
+      content = `<div class="chat-media-wrap"><img class="chat-image" src="${m.attachment_data}" alt="${UI.escapeHtml(m.attachment_name || 'Photo')}" />${opts.pending ? '<div class="chat-upload-overlay"><span class="spinner"></span></div>' : ''}</div>`;
     } else if (m.attachment_type === 'audio') {
-      content = `<audio class="chat-audio" controls src="${m.attachment_data}"></audio>`;
+      content = `<div class="chat-media-wrap"><audio class="chat-audio" controls src="${m.attachment_data}"></audio>${opts.pending ? '<div class="chat-upload-overlay"><span class="spinner"></span></div>' : ''}</div>`;
     } else if (m.attachment_type === 'file') {
       content = `
         <div class="chat-file">
           <svg width="22" height="22" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
           <span class="chat-file-name">${UI.escapeHtml(m.attachment_name || 'Fichier')}</span>
-          <a href="${m.attachment_data}" download="${UI.escapeHtml(m.attachment_name || 'fichier')}" class="btn-icon" aria-label="Télécharger">
-            <svg width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-          </a>
+          ${opts.pending
+            ? '<span class="spinner"></span>'
+            : `<a href="${m.attachment_data}" download="${UI.escapeHtml(m.attachment_name || 'fichier')}" class="btn-icon" aria-label="Télécharger"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></a>`}
         </div>`;
     }
     if (m.body) content += `<div>${UI.escapeHtml(m.body)}</div>`;
-    div.innerHTML = `${content}<span class="chat-bubble-time">${time}</span>`;
+
+    /* Statut façon WhatsApp, uniquement sur mes propres messages :
+       ⏱ en cours d'envoi → ✓ envoyé → ✓✓ (bleu) lu par le destinataire */
+    let ticks = '';
+    if (mine) {
+      let state = 'sent';
+      if (opts.pending) state = 'pending';
+      else if (this.otherLastReadAt && m.created_at && m.created_at <= this.otherLastReadAt) state = 'read';
+      ticks = `<span class="chat-ticks ticks-${state}">${this.tickIcon(state)}</span>`;
+    }
+
+    div.innerHTML = `${content}<span class="chat-bubble-time">${time}${ticks}</span>`;
     return div;
+  },
+
+  tickIcon(state) {
+    if (state === 'pending') {
+      return '<svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>';
+    }
+    if (state === 'read') {
+      return '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M1 12l5 5L17 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M8 12l5 5L24 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+    }
+    /* sent (une seule coche) */
+    return '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 12l5 5L19 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+  },
+
+  /* Met à jour les coches déjà affichées (sans tout re-rendre) quand le
+     destinataire lit la conversation pendant qu'on est encore à l'écran. */
+  updateTicks() {
+    if (!this.otherLastReadAt) return;
+    document.querySelectorAll('#chat-messages-list .chat-bubble.mine[data-created-at]').forEach(el => {
+      if (el.classList.contains('pending')) return;
+      if (el.dataset.createdAt <= this.otherLastReadAt) {
+        const ticksEl = el.querySelector('.chat-ticks');
+        if (ticksEl && !ticksEl.classList.contains('ticks-read')) {
+          ticksEl.className = 'chat-ticks ticks-read';
+          ticksEl.innerHTML = this.tickIcon('read');
+        }
+      }
+    });
   },
 
   async send() {
@@ -1891,6 +1970,18 @@ const Chat = {
     input.value = '';
     input.style.height = 'auto';
     input.dispatchEvent(new Event('input'));
+
+    /* Bulle optimiste "en cours d'envoi" (horloge), remplacée par le vrai
+       message dès que le serveur confirme — exactement le comportement WhatsApp. */
+    const list = document.getElementById('chat-messages-list');
+    list.querySelector('.empty-state')?.remove();
+    const pendingEl = this.renderBubble(
+      { id: `pending-${Date.now()}`, sender_id: App.currentUser.id, body, created_at: null },
+      { pending: true }
+    );
+    list.appendChild(pendingEl);
+    list.scrollTop = list.scrollHeight;
+
     try {
       const res = await API.request('sendMessage', { conversationId: this.currentConversationId, body });
       if (res.success) {
@@ -1901,6 +1992,7 @@ const Chat = {
         input.dispatchEvent(new Event('input'));
       }
     } finally {
+      pendingEl.remove();
       this._sending = false;
     }
   }
@@ -2298,7 +2390,7 @@ function setupEventListeners() {
   document.getElementById('modal-close').addEventListener('click', () => Modal.close());
 
   /* Browser back button */
-  window.addEventListener('popstate', () => Nav.back());
+  window.addEventListener('popstate', () => Nav.back(true));
 }
 
 /* ═══════════════════════════════ INIT ═══════════════════════════════ */
