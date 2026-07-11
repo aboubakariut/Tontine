@@ -1855,8 +1855,16 @@ try {
             $sql .= " ORDER BY m.id ASC LIMIT 200";
             $messages = DB::rows($sql, $params);
 
+            /* Dernière lecture de l'AUTRE participant (conversation 1-à-1) :
+               permet d'afficher les doubles coches "lu" façon WhatsApp,
+               sans avoir à suivre un statut par message. */
+            $other = DB::row(
+                "SELECT last_read_at FROM conversation_participants WHERE conversation_id = ? AND user_id != ? LIMIT 1",
+                [$convId, $user['id']]
+            );
+
             DB::q("UPDATE conversation_participants SET last_read_at = NOW() WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
-            success($messages);
+            success(['messages' => $messages, 'otherLastReadAt' => $other['last_read_at'] ?? null]);
         }
 
         case 'sendMessage': {
