@@ -96,8 +96,26 @@ const App = {
 /* ═══════════════════════════════ API HANDLER ═══════════════════════════════ */
 const API = {
   base: '/api/api.php',
+  _pending: 0,
+  _hideTimer: null,
+
+  _showLoadingBar() {
+    this._pending++;
+    if (this._hideTimer) { clearTimeout(this._hideTimer); this._hideTimer = null; }
+    const bar = document.getElementById('global-loading-bar');
+    if (bar) bar.classList.add('active');
+  },
+  _hideLoadingBar() {
+    this._pending = Math.max(0, this._pending - 1);
+    if (this._pending > 0) return;
+    /* Petit délai pour éviter un clignotement si une autre requête démarre juste après */
+    this._hideTimer = setTimeout(() => {
+      if (this._pending === 0) document.getElementById('global-loading-bar')?.classList.remove('active');
+    }, 150);
+  },
 
   async request(action, data = {}) {
+    this._showLoadingBar();
     try {
       const res = await fetch(this.base, {
         method: 'POST',
@@ -108,6 +126,8 @@ const API = {
     } catch {
       /* Fallback to demo data when PHP not available */
       return this.demoFallback(action, data);
+    } finally {
+      this._hideLoadingBar();
     }
   },
 
@@ -161,7 +181,7 @@ const API = {
 const Nav = {
   history: [],
 
-  go(page, title = '') {
+  go(page, title = '', fromPopstate = false) {
     /* Stoppe le rafraîchissement automatique des messages si on quitte le fil de discussion */
     if (page !== 'chat-thread' && typeof Chat !== 'undefined') Chat.stopPolling();
 
@@ -181,6 +201,7 @@ const Nav = {
     const isRoot = ['dashboard', 'my-tontines', 'create-tontine', 'join-tontine', 'profile', 'settings', 'auth'].includes(page);
     const topbarLogo = document.getElementById('topbar-logo');
     const topbarTitle = document.getElementById('topbar-title');
+    const topbarChatInfo = document.getElementById('topbar-chat-info');
     const btnBack = document.getElementById('btn-back');
     const topbar = document.getElementById('topbar');
     const bottomNav = document.getElementById('bottom-nav');
@@ -194,33 +215,63 @@ const Nav = {
       topbar.style.display = 'flex';
       bottomNav.style.display = 'none';
       document.getElementById('app').classList.add('chat-open');
+      /* Si on revient sur cette page via l'historique (précédente conversation
+         encore affichée), on relance le polling s'il n'est pas déjà actif */
+      if (typeof Chat !== 'undefined' && Chat.currentConversationId && !Chat.pollTimer) {
+        Chat.fetchMessages(false);
+        Chat.pollTimer = setInterval(() => Chat.fetchMessages(false), 3000);
+      }
     } else {
       topbar.style.display = 'flex';
       bottomNav.style.display = 'flex';
       document.getElementById('app').classList.remove('chat-open');
     }
 
-    if (isRoot && page !== 'auth') {
+    if (page === 'chat-thread') {
+      /* En conversation, la topbar affiche l'avatar + le nom du contact,
+         comme dans WhatsApp, plutôt qu'un simple titre texte */
+      topbarLogo.classList.add('hidden');
+      topbarTitle.classList.add('hidden');
+      topbarChatInfo?.classList.remove('hidden');
+      btnBack.style.display = 'flex';
+      if (App.currentPage !== page) this.history.push({ page: App.currentPage, title: App.currentTitle });
+    } else if (isRoot && page !== 'auth') {
       topbarLogo.classList.remove('hidden');
       topbarTitle.classList.add('hidden');
+      topbarChatInfo?.classList.add('hidden');
       btnBack.style.display = 'none';
     } else if (page !== 'auth') {
       topbarLogo.classList.add('hidden');
       topbarTitle.classList.remove('hidden');
       topbarTitle.textContent = title;
+      topbarChatInfo?.classList.add('hidden');
       btnBack.style.display = 'flex';
-      this.history.push(App.currentPage);
+      if (App.currentPage !== page) this.history.push({ page: App.currentPage, title: App.currentTitle });
     }
 
     App.currentPage = page;
+    App.currentTitle = title;
     window.scrollTo(0, 0);
     this.closeMenu();
+
+    /* Mémorise la page courante pour la restaurer après un F5 (voir RouteMemory) */
+    if (page !== 'auth') RouteMemory.save(page, title);
+
+    /* Synchronise avec l'historique RÉEL du navigateur : sans ceci, le bouton
+       retour physique/geste (Android) ou la souris arrière du navigateur ne
+       déclenchent jamais notre navigation interne — ils finissent par quitter
+       carrément l'application au lieu de revenir à l'écran précédent. On ne
+       pousse pas une nouvelle entrée quand ce go() vient lui-même d'un popstate,
+       sinon chaque retour recréerait une entrée "avant" et casserait la pile. */
+    if (page !== 'auth' && !fromPopstate) {
+      try { history.pushState({ tfNav: true }, '', location.href); } catch {}
+    }
   },
 
-  back() {
+  back(fromPopstate = false) {
     const prev = this.history.pop();
-    if (prev) this.go(prev);
-    else this.go('dashboard');
+    if (prev) this.go(prev.page, prev.title, fromPopstate);
+    else this.go('dashboard', '', fromPopstate);
   },
 
   closeMenu() {
@@ -301,6 +352,7 @@ const Auth = {
     /* Effacer toute ancienne session avant d'en démarrer une nouvelle */
     Storage.remove('user');
     Storage.remove('token');
+    RouteMemory.clear();
     App.currentUser = null;
 
     /* Le serveur renvoie { success, data: { user, token }, message } */
@@ -328,6 +380,7 @@ const Auth = {
     App.token = null;
     Storage.remove('user');
     Storage.remove('token');
+    RouteMemory.clear();
     Nav.history = [];
     /* Forcer le rechargement complet pour nettoyer l'état */
     window.location.href = '/';
@@ -341,12 +394,14 @@ const Dashboard = {
     const listEl = document.getElementById('dashboard-tontines-list');
     const actElInit = document.getElementById('dashboard-activity-list');
     const myTontinesListEl = document.getElementById('my-tontines-list');
+    const statIds = ['stat-active', 'stat-savings', 'stat-next', 'stat-members'];
+    statIds.forEach(id => document.getElementById(id)?.classList.add('text-skeleton'));
     if (listEl) listEl.innerHTML = UI.skeletonCards(2);
     if (actElInit) actElInit.innerHTML = UI.skeletonRows(3);
     if (myTontinesListEl && !MyTontines.data.length) myTontinesListEl.innerHTML = UI.skeletonCards(3);
 
     const res = await API.request('getTontines');
-    if (!res.success) return;
+    if (!res.success) { statIds.forEach(id => document.getElementById(id)?.classList.remove('text-skeleton')); return; }
     const tontines = res.data;
 
     /* Stats */
@@ -359,6 +414,7 @@ const Dashboard = {
     document.getElementById('stat-savings').textContent = UI.formatAmount(savings);
     document.getElementById('stat-next').textContent = nextDate;
     document.getElementById('stat-members').textContent = members;
+    statIds.forEach(id => document.getElementById(id)?.classList.remove('text-skeleton'));
 
     /* Tontines list (max 3) */
     const list = document.getElementById('dashboard-tontines-list');
@@ -428,20 +484,31 @@ const TontineDetail = {
   open(tontine) {
     App.currentTontine = tontine;
     Nav.go('tontine-detail', tontine.name);
+    RouteMemory.save('tontine-detail', tontine.name, { tontineId: tontine.id });
     this.render(tontine);
   },
 
   /* Ouvre une tontine à partir de son seul ID (ex: depuis une notification) */
-  async openById(tontineId, focusPendingRequests = false) {
+  async openById(tontineId, focusPendingRequests = false, highlightRequestId = null) {
     const res = await API.request('getTontine', { tontineId });
     if (!res.success) { Toast.show(res.message || 'Tontine introuvable', 'error'); return; }
     this.open(res.data);
     if (focusPendingRequests && res.data.userRole === 'admin') {
-      this.loadPendingRequests(tontineId);
+      this.loadPendingRequests(tontineId, highlightRequestId);
     }
   },
 
-  async loadPendingRequests(tontineId) {
+  /* Recharge les données et ré-affiche la page SANS empiler l'historique
+     de navigation — à utiliser après une action effectuée depuis la page
+     de détail elle-même (paiement, rôle, membre...), jamais pour y entrer. */
+  async refresh(tontineId) {
+    const res = await API.request('getTontine', { tontineId });
+    if (!res.success) { Toast.show(res.message || 'Tontine introuvable', 'error'); return; }
+    App.currentTontine = res.data;
+    this.render(res.data);
+  },
+
+  async loadPendingRequests(tontineId, highlightRequestId = null) {
     const card = document.getElementById('detail-pending-requests-card');
     const list = document.getElementById('detail-pending-requests-list');
     if (!card || !list) return;
@@ -453,6 +520,7 @@ const TontineDetail = {
     res.data.forEach(m => {
       const div = document.createElement('div');
       div.className = 'member-item';
+      div.id = `pending-request-${m.id}`;
       div.innerHTML = `
         <div class="avatar-sm">${m.initials || m.name.slice(0,2).toUpperCase()}</div>
         <div class="member-info">
@@ -460,27 +528,43 @@ const TontineDetail = {
           <p class="member-role">Demande du ${m.requested_at}</p>
         </div>
         <div class="contact-item-actions">
-          <button class="btn-icon" title="Accepter" style="color:var(--color-primary)" onclick="TontineDetail.respondPending(${tontineId},${m.id},'approve')">
+          <button class="btn-icon" title="Accepter" style="color:var(--color-primary)" onclick="TontineDetail.respondPending(${tontineId},${m.id},'approve',this)">
             <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
           </button>
-          <button class="btn-icon" title="Refuser" style="color:var(--color-red)" onclick="TontineDetail.respondPending(${tontineId},${m.id},'reject')">
+          <button class="btn-icon" title="Refuser" style="color:var(--color-red)" onclick="TontineDetail.respondPending(${tontineId},${m.id},'reject',this)">
             <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </button>
         </div>
       `;
       list.appendChild(div);
     });
-    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    /* Si on vient d'une notification précise, on va droit à la demande
+       concernée plutôt que de laisser l'utilisateur la chercher dans la liste */
+    const target = highlightRequestId ? document.getElementById(`pending-request-${highlightRequestId}`) : null;
+    if (target) {
+      target.classList.add('request-highlight');
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => target.classList.remove('request-highlight'), 2600);
+    } else {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   },
 
-  async respondPending(tontineId, memberId, action) {
+  async respondPending(tontineId, memberId, action, btnEl = null) {
+    /* Petit état de chargement sur le bouton cliqué, pour un retour immédiat */
+    const row = btnEl?.closest('.contact-item-actions');
+    if (row) row.querySelectorAll('button').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+    if (btnEl) btnEl.innerHTML = '<span class="spinner" style="width:16px;height:16px;border-width:2px"></span>';
+
     const res = await API.request('approveMember', { tontineId, memberId, action });
     if (res.success) {
       Toast.show(action === 'approve' ? 'Membre accepté !' : 'Demande refusée', 'success');
       this.loadPendingRequests(tontineId);
-      this.openById(tontineId); /* rafraîchit le nombre de membres affiché */
+      this.refresh(tontineId); /* rafraîchit le nombre de membres affiché */
     } else {
       Toast.show(res.message || 'Erreur', 'error');
+      this.loadPendingRequests(tontineId); /* réinitialise les boutons (retire spinner/disabled) */
     }
   },
 
@@ -499,12 +583,14 @@ const TontineDetail = {
 
     /* Admin actions */
     const adminActions = document.getElementById('detail-admin-actions');
-    if (t.userRole === 'admin') {
-      adminActions.innerHTML = `
-        <button class="btn-icon" title="Paramètres de la tontine" onclick="TontineDetail.openSettings()">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
-        </button>`;
-    } else { adminActions.innerHTML = ''; }
+    const chatBtn = `
+      <button class="btn-icon" title="Chat du groupe" onclick="Chat.openTontineChat(${t.id}, '${(t.name || '').replace(/'/g, "\\'")}')">
+        <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>`;
+    adminActions.innerHTML = chatBtn + (t.userRole === 'admin' ? `
+      <button class="btn-icon" title="Paramètres de la tontine" onclick="TontineDetail.openSettings()">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+      </button>` : '');
 
     /* Overview tab */
     const progress = t.totalTours ? (t.currentTour / t.totalTours) * 100 : 0;
@@ -519,9 +605,12 @@ const TontineDetail = {
     /* Members tab */
     const membersList = document.getElementById('detail-members-list');
     membersList.innerHTML = '';
+    this._proofByMemberId = {};
     (t.members || []).forEach(m => {
+      if (m.paymentProof) this._proofByMemberId[m.id] = { image: m.paymentProof, name: m.name };
       const div = document.createElement('div');
       div.className = 'member-item';
+      div.id = `member-row-${m.id}`;
       const photo = m.avatar_photo || m.avatarPhoto;
       const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
       const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
@@ -543,7 +632,11 @@ const TontineDetail = {
       let paymentAdminBtns = '';
       if (isAdminViewer && !m.paid) {
         if (m.paymentPending) {
+          const proofBtn = m.paymentProof
+            ? `<button class="btn-icon proof-thumb-btn" title="Voir la capture d'écran" onclick="TontineDetail.viewProof(${m.id})" style="background-image:url('${m.paymentProof}')"></button>`
+            : '';
           paymentAdminBtns = `
+            ${proofBtn}
             <button class="btn-icon" title="Confirmer la réception" style="color:var(--color-primary)" onclick="TontineDetail.recordPayment(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>
             <button class="btn-icon" title="Refuser (introuvable)" style="color:var(--color-red)" onclick="TontineDetail.rejectPayment(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>`;
         } else {
@@ -634,6 +727,18 @@ const TontineDetail = {
     matrix.innerHTML = html;
   },
 
+  /* Met en évidence brièvement la ligne d'un membre après un changement
+     (paiement confirmé/refusé...) pour que le changement se voit clairement,
+     plutôt que de re-render silencieusement toute la liste. */
+  _flashMemberRow(memberId) {
+    requestAnimationFrame(() => {
+      const row = document.getElementById(`member-row-${memberId}`);
+      if (!row) return;
+      row.classList.add('status-flash');
+      setTimeout(() => row.classList.remove('status-flash'), 1500);
+    });
+  },
+
   async recordPayment(memberId, memberName) {
     const confirmed = await Modal.confirm(`Confirmer le paiement de ${memberName} ?`, `Cette action sera enregistrée dans le journal de la tontine et visible par tous les membres.`, 'Confirmer le paiement');
     if (!confirmed) return;
@@ -644,6 +749,7 @@ const TontineDetail = {
       const member = App.currentTontine.members.find(m => m.id === memberId);
       if (member) member.paid = true;
       this.render(App.currentTontine);
+      this._flashMemberRow(memberId);
     }
   },
 
@@ -685,6 +791,17 @@ const TontineDetail = {
         </p>
       </div>
       <div class="form-group">
+        <label class="form-label">4. Capture d'écran du paiement <span style="color:var(--color-text-3);font-weight:400">(recommandé)</span></label>
+        <input type="file" id="payment-proof-input" accept="image/*" style="display:none" />
+        <div id="payment-proof-zone" class="proof-upload-zone">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 16l4.586-4.586a2 2 0 0 1 2.828 0L16 16M14 14l1.586-1.586a2 2 0 0 1 2.828 0L20 14M4 8h.01M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          <span>Ajouter une capture d'écran</span>
+        </div>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-top:6px">
+          Ça aide l'administrateur à retrouver votre transaction plus rapidement — mais ce n'est pas obligatoire.
+        </p>
+      </div>
+      <div class="form-group">
         <button class="btn-secondary btn-full" id="btn-confirm-momo-paid">✓ J'ai envoyé le paiement</button>
         <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-top:6px;text-align:center">
           L'administrateur devra confirmer la réception avant que votre cotisation soit validée.
@@ -692,16 +809,61 @@ const TontineDetail = {
       </div>
     `);
 
-    document.getElementById('btn-confirm-momo-paid').addEventListener('click', async () => {
+    /* Sélection + compression de la capture d'écran (optionnelle) */
+    let proofImageData = null;
+    const proofInput = document.getElementById('payment-proof-input');
+    const proofZone = document.getElementById('payment-proof-zone');
+    proofZone.addEventListener('click', () => proofInput.click());
+    proofInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      proofZone.innerHTML = '<span class="spinner" style="width:18px;height:18px;border-width:2px"></span> Traitement de l\'image...';
+      try {
+        proofImageData = await UI.resizeImageToBase64(file, 1000, 0.7);
+        proofZone.classList.add('has-image');
+        proofZone.innerHTML = `
+          <img src="${proofImageData}" alt="Capture du paiement" />
+          <button type="button" class="proof-remove" aria-label="Retirer">✕</button>
+        `;
+        proofZone.querySelector('.proof-remove').addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          proofImageData = null;
+          proofInput.value = '';
+          proofZone.classList.remove('has-image');
+          proofZone.innerHTML = `
+            <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 16l4.586-4.586a2 2 0 0 1 2.828 0L16 16M14 14l1.586-1.586a2 2 0 0 1 2.828 0L20 14M4 8h.01M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+            <span>Ajouter une capture d'écran</span>
+          `;
+        });
+      } catch {
+        Toast.show('Image illisible, réessayez.', 'error');
+      }
+    });
+
+    document.getElementById('btn-confirm-momo-paid').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="width:18px;height:18px;border-width:2px;margin:0 auto"></span>';
+      const res = await API.request('declarePayment', { tontineId: t.id, proofImage: proofImageData });
       Modal.close();
-      const res = await API.request('declarePayment', { tontineId: t.id });
       if (res.success) {
         Toast.show(res.message || 'Déclaration envoyée !', 'success');
-        this.openById(t.id);
+        this.refresh(t.id);
       } else {
         Toast.show(res.message || 'Erreur', 'error');
       }
     });
+  },
+
+  viewProof(memberId) {
+    const entry = this._proofByMemberId?.[memberId];
+    if (!entry) return;
+    Modal.open(`Capture de ${entry.name}`, `
+      <div class="proof-viewer">
+        <img src="${entry.image}" alt="Capture d'écran du paiement" />
+      </div>
+    `);
   },
 
   async rejectPayment(memberId, memberName) {
@@ -714,7 +876,8 @@ const TontineDetail = {
     const res = await API.request('rejectPayment', { tontineId: App.currentTontine.id, memberId });
     if (res.success) {
       Toast.show('Déclaration refusée.', 'success');
-      this.openById(App.currentTontine.id);
+      await this.refresh(App.currentTontine.id);
+      this._flashMemberRow(memberId);
     } else {
       Toast.show(res.message || 'Erreur', 'error');
     }
@@ -727,7 +890,7 @@ const TontineDetail = {
     const res = await API.request('updateMemberRole', { tontineId: App.currentTontine.id, memberId, role });
     if (res.success) {
       Toast.show(res.message || 'Rôle mis à jour.', 'success');
-      this.openById(App.currentTontine.id);
+      this.refresh(App.currentTontine.id);
     } else {
       Toast.show(res.message || 'Erreur', 'error');
     }
@@ -743,7 +906,7 @@ const TontineDetail = {
     const res = await API.request('removeMember', { tontineId: App.currentTontine.id, memberId });
     if (res.success) {
       Toast.show(res.message || 'Membre retiré.', 'success');
-      this.openById(App.currentTontine.id);
+      this.refresh(App.currentTontine.id);
     } else {
       Toast.show(res.message || 'Erreur', 'error');
     }
@@ -797,35 +960,59 @@ const TontineDetail = {
       </div>
     `);
 
-    document.getElementById('btn-save-tontine-info')?.addEventListener('click', async () => {
+    document.getElementById('btn-save-tontine-info')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
       const name = document.getElementById('edit-tontine-name').value.trim();
       const description = document.getElementById('edit-tontine-desc').value.trim();
       if (!name) { Toast.show('Le nom ne peut pas être vide.', 'error'); return; }
-      const res = await API.request('updateTontine', { tontineId: t.id, name, description });
-      if (res.success) {
-        Toast.show('Tontine mise à jour !', 'success');
-        Modal.close();
-        this.openById(t.id);
-      } else {
-        Toast.show(res.message || 'Erreur', 'error');
+      if (btn.disabled) return;
+      const originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+      try {
+        const res = await API.request('updateTontine', { tontineId: t.id, name, description });
+        if (res.success) {
+          Toast.show('Tontine mise à jour !', 'success');
+          Modal.close();
+          this.refresh(t.id);
+        } else {
+          Toast.show(res.message || 'Erreur', 'error');
+        }
+      } catch (err) {
+        Toast.show('Erreur réseau, réessayez.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
       }
     });
 
-    document.getElementById('btn-save-momo')?.addEventListener('click', async () => {
+    document.getElementById('btn-save-momo')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
       const momoOperator = document.getElementById('momo-operator').value;
       const momoNumber = document.getElementById('momo-number').value.trim();
       if (!/^6\d{8}$/.test(momoNumber)) {
         Toast.show('Numéro invalide (9 chiffres, commence par 6).', 'error');
         return;
       }
-      const res = await API.request('updateTontineMomo', { tontineId: t.id, momoOperator, momoNumber });
-      if (res.success) {
-        Toast.show('Numéro Mobile Money enregistré !', 'success');
-        t.momoOperator = res.data.momoOperator;
-        t.momoNumber = res.data.momoNumber;
-        Modal.close();
-      } else {
-        Toast.show(res.message || 'Erreur', 'error');
+      const originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+      try {
+        const res = await API.request('updateTontineMomo', { tontineId: t.id, momoOperator, momoNumber });
+        if (res.success) {
+          Toast.show('Numéro Mobile Money enregistré !', 'success');
+          t.momoOperator = res.data.momoOperator;
+          t.momoNumber = res.data.momoNumber;
+          Modal.close();
+        } else {
+          Toast.show(res.message || 'Erreur', 'error');
+        }
+      } catch (err) {
+        Toast.show('Erreur réseau, réessayez.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
       }
     });
 
@@ -1489,14 +1676,38 @@ const Contacts = {
 const Chat = {
   currentConversationId: null,
   currentTitle: '',
+  isGroup: false,
   pollTimer: null,
   listPollTimer: null,
   lastMessageId: 0,
+  lastRenderedDate: null,
+  otherLastReadAt: null,
+  renderedIds: null,
+  _fetchInFlight: false,
+  _sending: false,
+  _conversations: [],
 
   init() {
+    const input = document.getElementById('chat-message-input');
+    const sendBtn = document.getElementById('btn-chat-send');
+    const recordBtn = document.getElementById('btn-chat-record');
+
+    /* Bascule mic ↔ envoi selon que le champ contient du texte (comme WhatsApp),
+       et fait grandir la zone de saisie au fil des lignes (jusqu'à une hauteur max, cf. CSS) */
+    const syncInputState = () => {
+      const hasText = input.value.trim().length > 0;
+      sendBtn.classList.toggle('hidden', !hasText);
+      recordBtn.classList.toggle('hidden', hasText);
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 110) + 'px';
+    };
+    input.addEventListener('input', syncInputState);
+    syncInputState();
+
     document.getElementById('btn-chat-send').addEventListener('click', () => this.send());
     document.getElementById('chat-message-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); this.send(); }
+      /* Entrée envoie, Maj+Entrée insère une nouvelle ligne */
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send(); }
     });
 
     /* Pièce jointe (photo ou fichier) */
@@ -1522,6 +1733,15 @@ const Chat = {
 
     /* Message vocal */
     document.getElementById('btn-chat-record').addEventListener('click', () => this.toggleRecording());
+
+    /* Recherche dans la liste des conversations (comme WhatsApp) */
+    document.getElementById('search-conversations')?.addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      const filtered = !q ? this._conversations : this._conversations.filter(c =>
+        (c.title || '').toLowerCase().includes(q) || (c.last_message || '').toLowerCase().includes(q)
+      );
+      this.renderConversationsList(filtered);
+    });
   },
 
   mediaRecorder: null,
@@ -1567,15 +1787,31 @@ const Chat = {
 
   async sendAttachment(type, dataUrl, name) {
     if (!this.currentConversationId) return;
-    const res = await API.request('sendMessage', {
-      conversationId: this.currentConversationId,
-      body: '',
-      attachmentType: type,
-      attachmentData: dataUrl,
-      attachmentName: name
-    });
-    if (res.success) await this.fetchMessages(false);
-    else Toast.show(res.message || 'Envoi impossible', 'error');
+    const list = document.getElementById('chat-messages-list');
+    list.querySelector('.empty-state')?.remove();
+    const pendingEl = this.renderBubble(
+      {
+        id: `pending-${Date.now()}`, sender_id: App.currentUser.id, body: '', created_at: null,
+        attachment_type: type, attachment_data: dataUrl, attachment_name: name
+      },
+      { pending: true }
+    );
+    list.appendChild(pendingEl);
+    list.scrollTop = list.scrollHeight;
+
+    try {
+      const res = await API.request('sendMessage', {
+        conversationId: this.currentConversationId,
+        body: '',
+        attachmentType: type,
+        attachmentData: dataUrl,
+        attachmentName: name
+      });
+      if (res.success) await this.fetchMessages(false);
+      else Toast.show(res.message || 'Envoi impossible', 'error');
+    } finally {
+      pendingEl.remove();
+    }
   },
 
   /* Rafraîchit périodiquement le badge de messages non lus, même en dehors
@@ -1600,14 +1836,21 @@ const Chat = {
     const list = document.getElementById('chat-conversations-list');
     if (list) list.innerHTML = UI.skeletonRows(4);
     const res = await API.request('getConversations');
+    if (!res.success) { if (list) list.innerHTML = ''; return; }
+    this._conversations = res.data;
+    this.renderConversationsList(res.data);
+  },
+
+  renderConversationsList(data) {
+    const list = document.getElementById('chat-conversations-list');
     list.innerHTML = '';
-    if (!res.success || !res.data.length) {
+    if (!data.length) {
       list.innerHTML = UI.emptyState('Aucune conversation pour le moment. Démarrez-en une depuis vos contacts !', 'contacts', 'Voir mes contacts');
       this.updateUnreadBadge(0);
       return;
     }
     let totalUnread = 0;
-    res.data.forEach(c => {
+    data.forEach(c => {
       totalUnread += c.unread || 0;
       list.appendChild(this.renderConversationItem(c));
     });
@@ -1616,16 +1859,17 @@ const Chat = {
 
   renderConversationItem(c) {
     const div = document.createElement('div');
-    div.className = 'conversation-item';
+    div.className = 'conversation-item' + (c.unread ? ' has-unread' : '');
     const photo = c.avatar_photo;
-    const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
+    const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm' + (c.is_group ? ' avatar-group' : '');
     const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
+    const groupIcon = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
     const initials = (c.avatar && c.avatar.length <= 4) ? c.avatar : (c.title || '?').slice(0, 2).toUpperCase();
     const time = c.last_at ? new Date(c.last_at.replace(' ', 'T')).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
     div.innerHTML = `
-      <div class="${avatarClass}"${avatarStyle}>${photo ? '' : initials}</div>
+      <div class="${avatarClass}"${avatarStyle}>${photo ? '' : (c.is_group ? groupIcon : initials)}</div>
       <div class="conversation-info">
-        <p class="conversation-name">${c.title || 'Conversation'}</p>
+        <p class="conversation-name">${c.is_group ? '👥 ' : ''}${c.title || 'Conversation'}</p>
         <p class="conversation-preview">${c.last_message ? UI.escapeHtml(c.last_message) : 'Aucun message pour le moment'}</p>
       </div>
       <div class="conversation-meta">
@@ -1633,7 +1877,7 @@ const Chat = {
         ${c.unread ? `<span class="notif-badge-inline">${c.unread}</span>` : ''}
       </div>
     `;
-    div.addEventListener('click', () => this.openThread(c.id, c.title, c.avatar, c.avatar_photo));
+    div.addEventListener('click', () => this.openThread(c.id, c.title, c.avatar, c.avatar_photo, !!c.is_group));
     return div;
   },
 
@@ -1653,12 +1897,47 @@ const Chat = {
     await this.openThread(res.data.conversationId, contact?.name || 'Discussion', contact?.avatar, contact?.avatar_photo);
   },
 
-  async openThread(conversationId, title, avatar, avatarPhoto) {
+  /* Ouvre (ou crée) le chat de groupe d'une tontine — réservé aux membres actifs */
+  async openTontineChat(tontineId, tontineName) {
+    const res = await API.request('getOrCreateTontineChat', { tontineId });
+    if (!res.success) { Toast.show(res.message || 'Chat indisponible', 'error'); return; }
+    await this.openThread(res.data.conversationId, res.data.title || tontineName, null, null, true);
+  },
+
+  async openThread(conversationId, title, avatar, avatarPhoto, isGroup = false) {
     this.stopPolling();
     this.currentConversationId = conversationId;
     this.currentTitle = title || 'Discussion';
+    this.isGroup = isGroup;
     this.lastMessageId = 0;
+    this.lastRenderedDate = null;
+    this.otherLastReadAt = null;
+    this.renderedIds = new Set();
+    this._fetchInFlight = false;
+    this._sending = false;
     Nav.go('chat-thread', this.currentTitle);
+    RouteMemory.save('chat-thread', this.currentTitle, { conversationId, avatar, avatarPhoto, isGroup });
+
+    /* Avatar + nom dans la topbar, comme WhatsApp (icône de groupe pour un chat de tontine) */
+    const avatarEl = document.getElementById('topbar-chat-avatar');
+    const nameEl = document.getElementById('topbar-chat-name');
+    if (avatarEl && nameEl) {
+      nameEl.textContent = this.currentTitle;
+      if (isGroup) {
+        avatarEl.classList.remove('has-photo');
+        avatarEl.style.backgroundImage = '';
+        avatarEl.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+      } else if (avatarPhoto) {
+        avatarEl.classList.add('has-photo');
+        avatarEl.style.backgroundImage = `url('${avatarPhoto}')`;
+        avatarEl.textContent = '';
+      } else {
+        avatarEl.classList.remove('has-photo');
+        avatarEl.style.backgroundImage = '';
+        avatarEl.textContent = (avatar && avatar.length <= 4) ? avatar : this.currentTitle.slice(0, 2).toUpperCase();
+      }
+    }
+
     document.getElementById('chat-messages-list').innerHTML = '<div class="empty-state small"><p>Chargement…</p></div>';
     await this.fetchMessages(true);
     this.pollTimer = setInterval(() => this.fetchMessages(false), 3000);
@@ -1670,63 +1949,167 @@ const Chat = {
 
   async fetchMessages(initial) {
     if (!this.currentConversationId) return;
-    const res = await API.request('getMessages', {
-      conversationId: this.currentConversationId,
-      sinceId: initial ? 0 : this.lastMessageId
-    });
-    if (!res.success) return;
-    const list = document.getElementById('chat-messages-list');
-    if (initial) list.innerHTML = '';
-    if (!res.data.length) {
-      if (initial) list.innerHTML = '<div class="empty-state small"><p>Dites bonjour 👋</p></div>';
-      return;
+    /* Empêche deux requêtes simultanées (ex: polling + envoi) de retomber
+       sur les mêmes messages avant que lastMessageId n'ait été mis à jour —
+       c'est ce qui causait l'affichage en double. */
+    if (this._fetchInFlight) return;
+    this._fetchInFlight = true;
+    try {
+      const res = await API.request('getMessages', {
+        conversationId: this.currentConversationId,
+        sinceId: initial ? 0 : this.lastMessageId
+      });
+      if (!res.success) return;
+      const messages = res.data.messages || [];
+      this.otherLastReadAt = res.data.otherLastReadAt || null;
+      const list = document.getElementById('chat-messages-list');
+      if (initial) { list.innerHTML = ''; this.renderedIds = new Set(); this.lastRenderedDate = null; }
+      if (!messages.length) {
+        if (initial) list.innerHTML = '<div class="empty-state small"><p>Dites bonjour 👋</p></div>';
+        this.updateTicks();
+        return;
+      }
+      const wasEmpty = list.querySelector('.empty-state');
+      if (wasEmpty) list.innerHTML = '';
+      let appended = false;
+      messages.forEach(m => {
+        this.lastMessageId = Math.max(this.lastMessageId, m.id);
+        /* Sécurité supplémentaire : ne jamais afficher deux fois le même message */
+        if (this.renderedIds.has(m.id)) return;
+        this.renderedIds.add(m.id);
+        const dateKey = m.created_at ? m.created_at.slice(0, 10) : null;
+        if (dateKey && dateKey !== this.lastRenderedDate) {
+          const sep = document.createElement('div');
+          sep.className = 'chat-date-sep';
+          sep.textContent = this.formatDateSeparator(dateKey);
+          list.appendChild(sep);
+          this.lastRenderedDate = dateKey;
+        }
+        list.appendChild(this.renderBubble(m));
+        appended = true;
+      });
+      if (appended) list.scrollTop = list.scrollHeight;
+      this.updateTicks();
+    } finally {
+      this._fetchInFlight = false;
     }
-    const wasEmpty = list.querySelector('.empty-state');
-    if (wasEmpty) list.innerHTML = '';
-    res.data.forEach(m => {
-      this.lastMessageId = Math.max(this.lastMessageId, m.id);
-      list.appendChild(this.renderBubble(m));
-    });
-    list.scrollTop = list.scrollHeight;
   },
 
-  renderBubble(m) {
+  /* "Aujourd'hui" / "Hier" / date complète — comme les séparateurs WhatsApp */
+  formatDateSeparator(dateKey) {
+    const d = new Date(dateKey + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    if (d.getTime() === today.getTime()) return "Aujourd'hui";
+    if (d.getTime() === yesterday.getTime()) return 'Hier';
+    return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+  },
+
+  renderBubble(m, opts = {}) {
     const div = document.createElement('div');
     const mine = String(m.sender_id) === String(App.currentUser?.id);
-    div.className = `chat-bubble ${mine ? 'mine' : 'theirs'}${m.attachment_type ? ' attachment' : ''}`;
+    div.className = `chat-bubble ${mine ? 'mine' : 'theirs'}${m.attachment_type ? ' attachment' : ''}${opts.pending ? ' pending' : ''}`;
+    div.dataset.id = m.id;
+    if (m.created_at) div.dataset.createdAt = m.created_at;
     const time = m.created_at ? new Date(m.created_at.replace(' ', 'T')).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
 
     let content = '';
     if (m.attachment_type === 'image') {
-      content = `<img class="chat-image" src="${m.attachment_data}" alt="${UI.escapeHtml(m.attachment_name || 'Photo')}" />`;
+      content = `<div class="chat-media-wrap"><img class="chat-image" src="${m.attachment_data}" alt="${UI.escapeHtml(m.attachment_name || 'Photo')}" />${opts.pending ? '<div class="chat-upload-overlay"><span class="spinner"></span></div>' : ''}</div>`;
     } else if (m.attachment_type === 'audio') {
-      content = `<audio class="chat-audio" controls src="${m.attachment_data}"></audio>`;
+      content = `<div class="chat-media-wrap"><audio class="chat-audio" controls src="${m.attachment_data}"></audio>${opts.pending ? '<div class="chat-upload-overlay"><span class="spinner"></span></div>' : ''}</div>`;
     } else if (m.attachment_type === 'file') {
       content = `
         <div class="chat-file">
           <svg width="22" height="22" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
           <span class="chat-file-name">${UI.escapeHtml(m.attachment_name || 'Fichier')}</span>
-          <a href="${m.attachment_data}" download="${UI.escapeHtml(m.attachment_name || 'fichier')}" class="btn-icon" aria-label="Télécharger">
-            <svg width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-          </a>
+          ${opts.pending
+            ? '<span class="spinner"></span>'
+            : `<a href="${m.attachment_data}" download="${UI.escapeHtml(m.attachment_name || 'fichier')}" class="btn-icon" aria-label="Télécharger"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></a>`}
         </div>`;
     }
     if (m.body) content += `<div>${UI.escapeHtml(m.body)}</div>`;
-    div.innerHTML = `${content}<span class="chat-bubble-time">${time}</span>`;
+
+    /* En chat de groupe, on affiche le nom de l'expéditeur au-dessus de ses
+       messages (sauf les miens) — comme dans les groupes WhatsApp */
+    if (this.isGroup && !mine && m.sender_name) {
+      content = `<div class="chat-sender-name">${UI.escapeHtml(m.sender_name)}</div>` + content;
+    }
+
+    /* Statut façon WhatsApp, uniquement sur mes propres messages :
+       ⏱ en cours d'envoi → ✓ envoyé → ✓✓ (bleu) lu par le destinataire */
+    let ticks = '';
+    if (mine) {
+      let state = 'sent';
+      if (opts.pending) state = 'pending';
+      else if (this.otherLastReadAt && m.created_at && m.created_at <= this.otherLastReadAt) state = 'read';
+      ticks = `<span class="chat-ticks ticks-${state}">${this.tickIcon(state)}</span>`;
+    }
+
+    div.innerHTML = `${content}<span class="chat-bubble-time">${time}${ticks}</span>`;
     return div;
   },
 
+  tickIcon(state) {
+    if (state === 'pending') {
+      return '<svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>';
+    }
+    if (state === 'read') {
+      return '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M1 12l5 5L17 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M8 12l5 5L24 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+    }
+    /* sent (une seule coche) */
+    return '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 12l5 5L19 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+  },
+
+  /* Met à jour les coches déjà affichées (sans tout re-rendre) quand le
+     destinataire lit la conversation pendant qu'on est encore à l'écran. */
+  updateTicks() {
+    if (!this.otherLastReadAt) return;
+    document.querySelectorAll('#chat-messages-list .chat-bubble.mine[data-created-at]').forEach(el => {
+      if (el.classList.contains('pending')) return;
+      if (el.dataset.createdAt <= this.otherLastReadAt) {
+        const ticksEl = el.querySelector('.chat-ticks');
+        if (ticksEl && !ticksEl.classList.contains('ticks-read')) {
+          ticksEl.className = 'chat-ticks ticks-read';
+          ticksEl.innerHTML = this.tickIcon('read');
+        }
+      }
+    });
+  },
+
   async send() {
+    if (this._sending) return;
     const input = document.getElementById('chat-message-input');
     const body = input.value.trim();
     if (!body || !this.currentConversationId) return;
+    this._sending = true;
     input.value = '';
-    const res = await API.request('sendMessage', { conversationId: this.currentConversationId, body });
-    if (res.success) {
-      await this.fetchMessages(false);
-    } else {
-      Toast.show(res.message || 'Message non envoyé', 'error');
-      input.value = body;
+    input.style.height = 'auto';
+    input.dispatchEvent(new Event('input'));
+
+    /* Bulle optimiste "en cours d'envoi" (horloge), remplacée par le vrai
+       message dès que le serveur confirme — exactement le comportement WhatsApp. */
+    const list = document.getElementById('chat-messages-list');
+    list.querySelector('.empty-state')?.remove();
+    const pendingEl = this.renderBubble(
+      { id: `pending-${Date.now()}`, sender_id: App.currentUser.id, body, created_at: null },
+      { pending: true }
+    );
+    list.appendChild(pendingEl);
+    list.scrollTop = list.scrollHeight;
+
+    try {
+      const res = await API.request('sendMessage', { conversationId: this.currentConversationId, body });
+      if (res.success) {
+        await this.fetchMessages(false);
+      } else {
+        Toast.show(res.message || 'Message non envoyé', 'error');
+        input.value = body;
+        input.dispatchEvent(new Event('input'));
+      }
+    } finally {
+      pendingEl.remove();
+      this._sending = false;
     }
   }
 };
@@ -1987,6 +2370,24 @@ const Storage = {
   }
 };
 
+/* ═══════════════════════════════ ROUTE MEMORY ═══════════════════════════════
+   Retient la dernière page visitée (et son contexte : ID de tontine ou de
+   conversation) pour qu'un rafraîchissement (F5) rouvre la même page au lieu
+   de toujours revenir au tableau de bord. Stocké en sessionStorage : propre
+   à l'onglet, effacé à la fermeture. */
+const RouteMemory = {
+  KEY: 'tf_last_route',
+  save(page, title = '', context = null) {
+    try { sessionStorage.setItem(this.KEY, JSON.stringify({ page, title, context })); } catch {}
+  },
+  load() {
+    try { return JSON.parse(sessionStorage.getItem(this.KEY)); } catch { return null; }
+  },
+  clear() {
+    try { sessionStorage.removeItem(this.KEY); } catch {}
+  }
+};
+
 /* ═══════════════════════════════ PWA MANIFEST ═══════════════════════════════ */
 function setupPWA() {
   /* Inline manifest */
@@ -2008,6 +2409,25 @@ function setupPWA() {
 }
 
 /* ═══════════════════════════════ EVENT LISTENERS ═══════════════════════════════ */
+const PAGE_TITLES = {
+  invite: 'Inviter', contacts: 'Contacts', chat: 'Messages',
+  terms: "Conditions d'utilisation", privacy: 'Confidentialité',
+  transactions: 'Transactions', 'audit-log': 'Journal'
+};
+
+/* Navigue vers une page "simple" (sans contexte supplémentaire type ID) en
+   chargeant ses données si besoin — utilisé par les clics [data-page] ET
+   par la restauration de page après un rafraîchissement (F5). */
+function goToPage(page) {
+  if (page === 'transactions') Transactions.load();
+  if (page === 'audit-log') AuditLog.load();
+  if (page === 'profile') Profile.load();
+  if (page === 'invite') Invite.loadTontines();
+  if (page === 'contacts') Contacts.load();
+  if (page === 'chat') Chat.loadConversations();
+  Nav.go(page, PAGE_TITLES[page] || '');
+}
+
 function setupEventListeners() {
   /* Global data-page click handler */
   document.addEventListener('click', (e) => {
@@ -2017,19 +2437,7 @@ function setupEventListeners() {
       if (page) {
         e.preventDefault();
         Nav.closeMenu();
-        /* Load page data on navigate */
-        if (page === 'transactions') Transactions.load();
-        if (page === 'audit-log') AuditLog.load();
-       if (page === 'profile') Profile.load();
-        if (page === 'invite') Invite.loadTontines();
-        if (page === 'contacts') Contacts.load();
-        if (page === 'chat') Chat.loadConversations();
-        const titles = {
-          invite: 'Inviter', contacts: 'Contacts', chat: 'Messages',
-          terms: "Conditions d'utilisation", privacy: 'Confidentialité',
-          transactions: 'Transactions', 'audit-log': 'Journal'
-        };
-        Nav.go(page, titles[page] || '');
+        goToPage(page);
       }
     }
   });
@@ -2083,7 +2491,7 @@ function setupEventListeners() {
         Modal.close();
         if (!n) return;
         if (n.type === 'join_request' && n.tontine_id) {
-          TontineDetail.openById(n.tontine_id, true);
+          TontineDetail.openById(n.tontine_id, true, n.ref_id);
         } else if (n.tontine_id) {
           TontineDetail.openById(n.tontine_id);
         } else if (n.type === 'contact_request' || n.type === 'contact_accepted') {
@@ -2098,10 +2506,35 @@ function setupEventListeners() {
   document.getElementById('modal-close').addEventListener('click', () => Modal.close());
 
   /* Browser back button */
-  window.addEventListener('popstate', () => Nav.back());
+  window.addEventListener('popstate', () => Nav.back(true));
 }
 
 /* ═══════════════════════════════ INIT ═══════════════════════════════ */
+
+/* Restaure la page où se trouvait l'utilisateur avant un rafraîchissement.
+   Retombe silencieusement sur le dashboard si le contexte est absent/invalide
+   (ex: tontine supprimée entre-temps). */
+async function restoreRoute(route) {
+  if (!route || !route.page || route.page === 'auth') { Nav.go('dashboard'); return; }
+  try {
+    if (route.page === 'tontine-detail' && route.context?.tontineId) {
+      await TontineDetail.openById(route.context.tontineId);
+      if (!document.getElementById('page-tontine-detail')?.classList.contains('active')) Nav.go('dashboard');
+      return;
+    }
+    if (route.page === 'chat-thread' && route.context?.conversationId) {
+      await Chat.openThread(route.context.conversationId, route.title, route.context.avatar, route.context.avatarPhoto, !!route.context.isGroup);
+      if (!document.getElementById('page-chat-thread')?.classList.contains('active')) Nav.go('dashboard');
+      return;
+    }
+    const pageEl = document.getElementById(`page-${route.page}`);
+    if (!pageEl) { Nav.go('dashboard'); return; }
+    goToPage(route.page);
+  } catch (err) {
+    console.error('Restauration de page échouée:', err);
+    Nav.go('dashboard');
+  }
+}
 
 async function init() {
 
@@ -2129,11 +2562,12 @@ async function init() {
   /* 3. Déterminer et activer la bonne page AVANT d'afficher l'app,
         pour éviter le flash du formulaire de connexion au démarrage */
   const isLoggedIn = !!(savedUser && savedToken);
+  const savedRoute = isLoggedIn ? RouteMemory.load() : null;
   if (isLoggedIn) {
     App.currentUser = savedUser;
     App.token = savedToken;
     UI.updateUserInfo();
-    Nav.go('dashboard');
+    await restoreRoute(savedRoute);
   } else {
     Nav.go('auth');
   }

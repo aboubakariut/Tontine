@@ -46,6 +46,11 @@
 <!-- ═══════════════════════════════ APP WRAPPER ═══════════════════════════════ -->
 <div id="app" class="app hidden">
 
+  <!-- ── BARRE DE CHARGEMENT GLOBALE ── -->
+  <!-- Affichée automatiquement dès qu'une requête réseau est en cours, où
+       qu'on soit dans l'application (voir API.request dans app.js) -->
+  <div id="global-loading-bar" class="global-loading-bar" aria-hidden="true"></div>
+
   <!-- ── TOP BAR ── -->
   <header class="topbar" id="topbar">
     <div class="topbar-left">
@@ -57,6 +62,10 @@
         <span>Tontines Facile</span>
       </div>
       <h2 class="topbar-title hidden" id="topbar-title"></h2>
+      <div class="topbar-chat-info hidden" id="topbar-chat-info">
+        <div class="avatar-sm" id="topbar-chat-avatar"></div>
+        <span id="topbar-chat-name"></span>
+      </div>
     </div>
     <div class="topbar-right">
       <button class="btn-icon notif-btn" id="btn-notif" aria-label="Notifications">
@@ -822,7 +831,11 @@
 
     <!-- ── PAGE: CHAT (liste des conversations) ── -->
     <section class="page" id="page-chat">
-      <div class="page-content">
+      <div class="page-content chat-list-content">
+        <div class="search-bar chat-search-bar">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2" fill="none"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="text" placeholder="Rechercher une conversation..." id="search-conversations" />
+        </div>
         <div id="chat-conversations-list"></div>
       </div>
     </section>
@@ -833,14 +846,16 @@
         <div class="chat-messages" id="chat-messages-list"></div>
         <div class="chat-input-bar">
           <input type="file" id="chat-file-input" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" style="display:none" />
-          <button class="btn-icon chat-attach-btn" id="btn-chat-attach" aria-label="Joindre un fichier">
-            <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-          </button>
-          <button class="btn-icon chat-attach-btn" id="btn-chat-record" aria-label="Message vocal">
+          <div class="chat-input-pill">
+            <button class="btn-icon chat-attach-btn" id="btn-chat-attach" aria-label="Joindre un fichier">
+              <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+            </button>
+            <textarea class="chat-textarea" id="chat-message-input" placeholder="Écrire un message..." rows="1"></textarea>
+          </div>
+          <button class="chat-round-btn" id="btn-chat-record" aria-label="Message vocal">
             <svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
           </button>
-          <input type="text" class="form-input" id="chat-message-input" placeholder="Écrire un message..." autocomplete="off" />
-          <button class="btn-icon btn-primary" id="btn-chat-send" aria-label="Envoyer">
+          <button class="chat-round-btn chat-send-btn hidden" id="btn-chat-send" aria-label="Envoyer">
             <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polygon points="22 2 15 22 11 13 2 9 22 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
           </button>
         </div>
