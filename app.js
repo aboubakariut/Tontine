@@ -96,26 +96,8 @@ const App = {
 /* ═══════════════════════════════ API HANDLER ═══════════════════════════════ */
 const API = {
   base: '/api/api.php',
-  _pending: 0,
-  _hideTimer: null,
-
-  _showLoadingBar() {
-    this._pending++;
-    if (this._hideTimer) { clearTimeout(this._hideTimer); this._hideTimer = null; }
-    const bar = document.getElementById('global-loading-bar');
-    if (bar) bar.classList.add('active');
-  },
-  _hideLoadingBar() {
-    this._pending = Math.max(0, this._pending - 1);
-    if (this._pending > 0) return;
-    /* Petit délai pour éviter un clignotement si une autre requête démarre juste après */
-    this._hideTimer = setTimeout(() => {
-      if (this._pending === 0) document.getElementById('global-loading-bar')?.classList.remove('active');
-    }, 150);
-  },
 
   async request(action, data = {}) {
-    this._showLoadingBar();
     try {
       const res = await fetch(this.base, {
         method: 'POST',
@@ -126,8 +108,6 @@ const API = {
     } catch {
       /* Fallback to demo data when PHP not available */
       return this.demoFallback(action, data);
-    } finally {
-      this._hideLoadingBar();
     }
   },
 
@@ -181,7 +161,7 @@ const API = {
 const Nav = {
   history: [],
 
-  go(page, title = '', fromPopstate = false) {
+  go(page, title = '') {
     /* Stoppe le rafraîchissement automatique des messages si on quitte le fil de discussion */
     if (page !== 'chat-thread' && typeof Chat !== 'undefined') Chat.stopPolling();
 
@@ -201,7 +181,6 @@ const Nav = {
     const isRoot = ['dashboard', 'my-tontines', 'create-tontine', 'join-tontine', 'profile', 'settings', 'auth'].includes(page);
     const topbarLogo = document.getElementById('topbar-logo');
     const topbarTitle = document.getElementById('topbar-title');
-    const topbarChatInfo = document.getElementById('topbar-chat-info');
     const btnBack = document.getElementById('btn-back');
     const topbar = document.getElementById('topbar');
     const bottomNav = document.getElementById('bottom-nav');
@@ -215,63 +194,33 @@ const Nav = {
       topbar.style.display = 'flex';
       bottomNav.style.display = 'none';
       document.getElementById('app').classList.add('chat-open');
-      /* Si on revient sur cette page via l'historique (précédente conversation
-         encore affichée), on relance le polling s'il n'est pas déjà actif */
-      if (typeof Chat !== 'undefined' && Chat.currentConversationId && !Chat.pollTimer) {
-        Chat.fetchMessages(false);
-        Chat.pollTimer = setInterval(() => Chat.fetchMessages(false), 3000);
-      }
     } else {
       topbar.style.display = 'flex';
       bottomNav.style.display = 'flex';
       document.getElementById('app').classList.remove('chat-open');
     }
 
-    if (page === 'chat-thread') {
-      /* En conversation, la topbar affiche l'avatar + le nom du contact,
-         comme dans WhatsApp, plutôt qu'un simple titre texte */
-      topbarLogo.classList.add('hidden');
-      topbarTitle.classList.add('hidden');
-      topbarChatInfo?.classList.remove('hidden');
-      btnBack.style.display = 'flex';
-      if (App.currentPage !== page) this.history.push({ page: App.currentPage, title: App.currentTitle });
-    } else if (isRoot && page !== 'auth') {
+    if (isRoot && page !== 'auth') {
       topbarLogo.classList.remove('hidden');
       topbarTitle.classList.add('hidden');
-      topbarChatInfo?.classList.add('hidden');
       btnBack.style.display = 'none';
     } else if (page !== 'auth') {
       topbarLogo.classList.add('hidden');
       topbarTitle.classList.remove('hidden');
       topbarTitle.textContent = title;
-      topbarChatInfo?.classList.add('hidden');
       btnBack.style.display = 'flex';
-      if (App.currentPage !== page) this.history.push({ page: App.currentPage, title: App.currentTitle });
+      this.history.push(App.currentPage);
     }
 
     App.currentPage = page;
-    App.currentTitle = title;
     window.scrollTo(0, 0);
     this.closeMenu();
-
-    /* Mémorise la page courante pour la restaurer après un F5 (voir RouteMemory) */
-    if (page !== 'auth') RouteMemory.save(page, title);
-
-    /* Synchronise avec l'historique RÉEL du navigateur : sans ceci, le bouton
-       retour physique/geste (Android) ou la souris arrière du navigateur ne
-       déclenchent jamais notre navigation interne — ils finissent par quitter
-       carrément l'application au lieu de revenir à l'écran précédent. On ne
-       pousse pas une nouvelle entrée quand ce go() vient lui-même d'un popstate,
-       sinon chaque retour recréerait une entrée "avant" et casserait la pile. */
-    if (page !== 'auth' && !fromPopstate) {
-      try { history.pushState({ tfNav: true }, '', location.href); } catch {}
-    }
   },
 
-  back(fromPopstate = false) {
+  back() {
     const prev = this.history.pop();
-    if (prev) this.go(prev.page, prev.title, fromPopstate);
-    else this.go('dashboard', '', fromPopstate);
+    if (prev) this.go(prev);
+    else this.go('dashboard');
   },
 
   closeMenu() {
@@ -352,7 +301,6 @@ const Auth = {
     /* Effacer toute ancienne session avant d'en démarrer une nouvelle */
     Storage.remove('user');
     Storage.remove('token');
-    RouteMemory.clear();
     App.currentUser = null;
 
     /* Le serveur renvoie { success, data: { user, token }, message } */
@@ -380,7 +328,6 @@ const Auth = {
     App.token = null;
     Storage.remove('user');
     Storage.remove('token');
-    RouteMemory.clear();
     Nav.history = [];
     /* Forcer le rechargement complet pour nettoyer l'état */
     window.location.href = '/';
@@ -394,14 +341,12 @@ const Dashboard = {
     const listEl = document.getElementById('dashboard-tontines-list');
     const actElInit = document.getElementById('dashboard-activity-list');
     const myTontinesListEl = document.getElementById('my-tontines-list');
-    const statIds = ['stat-active', 'stat-savings', 'stat-next', 'stat-members'];
-    statIds.forEach(id => document.getElementById(id)?.classList.add('text-skeleton'));
     if (listEl) listEl.innerHTML = UI.skeletonCards(2);
     if (actElInit) actElInit.innerHTML = UI.skeletonRows(3);
     if (myTontinesListEl && !MyTontines.data.length) myTontinesListEl.innerHTML = UI.skeletonCards(3);
 
     const res = await API.request('getTontines');
-    if (!res.success) { statIds.forEach(id => document.getElementById(id)?.classList.remove('text-skeleton')); return; }
+    if (!res.success) return;
     const tontines = res.data;
 
     /* Stats */
@@ -414,7 +359,6 @@ const Dashboard = {
     document.getElementById('stat-savings').textContent = UI.formatAmount(savings);
     document.getElementById('stat-next').textContent = nextDate;
     document.getElementById('stat-members').textContent = members;
-    statIds.forEach(id => document.getElementById(id)?.classList.remove('text-skeleton'));
 
     /* Tontines list (max 3) */
     const list = document.getElementById('dashboard-tontines-list');
@@ -484,7 +428,6 @@ const TontineDetail = {
   open(tontine) {
     App.currentTontine = tontine;
     Nav.go('tontine-detail', tontine.name);
-    RouteMemory.save('tontine-detail', tontine.name, { tontineId: tontine.id });
     this.render(tontine);
   },
 
@@ -496,16 +439,6 @@ const TontineDetail = {
     if (focusPendingRequests && res.data.userRole === 'admin') {
       this.loadPendingRequests(tontineId);
     }
-  },
-
-  /* Recharge les données et ré-affiche la page SANS empiler l'historique
-     de navigation — à utiliser après une action effectuée depuis la page
-     de détail elle-même (paiement, rôle, membre...), jamais pour y entrer. */
-  async refresh(tontineId) {
-    const res = await API.request('getTontine', { tontineId });
-    if (!res.success) { Toast.show(res.message || 'Tontine introuvable', 'error'); return; }
-    App.currentTontine = res.data;
-    this.render(res.data);
   },
 
   async loadPendingRequests(tontineId) {
@@ -545,7 +478,7 @@ const TontineDetail = {
     if (res.success) {
       Toast.show(action === 'approve' ? 'Membre accepté !' : 'Demande refusée', 'success');
       this.loadPendingRequests(tontineId);
-      this.refresh(tontineId); /* rafraîchit le nombre de membres affiché */
+      this.openById(tontineId); /* rafraîchit le nombre de membres affiché */
     } else {
       Toast.show(res.message || 'Erreur', 'error');
     }
@@ -764,7 +697,7 @@ const TontineDetail = {
       const res = await API.request('declarePayment', { tontineId: t.id });
       if (res.success) {
         Toast.show(res.message || 'Déclaration envoyée !', 'success');
-        this.refresh(t.id);
+        this.openById(t.id);
       } else {
         Toast.show(res.message || 'Erreur', 'error');
       }
@@ -781,7 +714,7 @@ const TontineDetail = {
     const res = await API.request('rejectPayment', { tontineId: App.currentTontine.id, memberId });
     if (res.success) {
       Toast.show('Déclaration refusée.', 'success');
-      this.refresh(App.currentTontine.id);
+      this.openById(App.currentTontine.id);
     } else {
       Toast.show(res.message || 'Erreur', 'error');
     }
@@ -794,7 +727,7 @@ const TontineDetail = {
     const res = await API.request('updateMemberRole', { tontineId: App.currentTontine.id, memberId, role });
     if (res.success) {
       Toast.show(res.message || 'Rôle mis à jour.', 'success');
-      this.refresh(App.currentTontine.id);
+      this.openById(App.currentTontine.id);
     } else {
       Toast.show(res.message || 'Erreur', 'error');
     }
@@ -810,7 +743,7 @@ const TontineDetail = {
     const res = await API.request('removeMember', { tontineId: App.currentTontine.id, memberId });
     if (res.success) {
       Toast.show(res.message || 'Membre retiré.', 'success');
-      this.refresh(App.currentTontine.id);
+      this.openById(App.currentTontine.id);
     } else {
       Toast.show(res.message || 'Erreur', 'error');
     }
@@ -864,59 +797,35 @@ const TontineDetail = {
       </div>
     `);
 
-    document.getElementById('btn-save-tontine-info')?.addEventListener('click', async (e) => {
-      const btn = e.currentTarget;
+    document.getElementById('btn-save-tontine-info')?.addEventListener('click', async () => {
       const name = document.getElementById('edit-tontine-name').value.trim();
       const description = document.getElementById('edit-tontine-desc').value.trim();
       if (!name) { Toast.show('Le nom ne peut pas être vide.', 'error'); return; }
-      if (btn.disabled) return;
-      const originalLabel = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = 'Enregistrement...';
-      try {
-        const res = await API.request('updateTontine', { tontineId: t.id, name, description });
-        if (res.success) {
-          Toast.show('Tontine mise à jour !', 'success');
-          Modal.close();
-          this.refresh(t.id);
-        } else {
-          Toast.show(res.message || 'Erreur', 'error');
-        }
-      } catch (err) {
-        Toast.show('Erreur réseau, réessayez.', 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = originalLabel;
+      const res = await API.request('updateTontine', { tontineId: t.id, name, description });
+      if (res.success) {
+        Toast.show('Tontine mise à jour !', 'success');
+        Modal.close();
+        this.openById(t.id);
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
       }
     });
 
-    document.getElementById('btn-save-momo')?.addEventListener('click', async (e) => {
-      const btn = e.currentTarget;
-      if (btn.disabled) return;
+    document.getElementById('btn-save-momo')?.addEventListener('click', async () => {
       const momoOperator = document.getElementById('momo-operator').value;
       const momoNumber = document.getElementById('momo-number').value.trim();
       if (!/^6\d{8}$/.test(momoNumber)) {
         Toast.show('Numéro invalide (9 chiffres, commence par 6).', 'error');
         return;
       }
-      const originalLabel = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = 'Enregistrement...';
-      try {
-        const res = await API.request('updateTontineMomo', { tontineId: t.id, momoOperator, momoNumber });
-        if (res.success) {
-          Toast.show('Numéro Mobile Money enregistré !', 'success');
-          t.momoOperator = res.data.momoOperator;
-          t.momoNumber = res.data.momoNumber;
-          Modal.close();
-        } else {
-          Toast.show(res.message || 'Erreur', 'error');
-        }
-      } catch (err) {
-        Toast.show('Erreur réseau, réessayez.', 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = originalLabel;
+      const res = await API.request('updateTontineMomo', { tontineId: t.id, momoOperator, momoNumber });
+      if (res.success) {
+        Toast.show('Numéro Mobile Money enregistré !', 'success');
+        t.momoOperator = res.data.momoOperator;
+        t.momoNumber = res.data.momoNumber;
+        Modal.close();
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
       }
     });
 
@@ -1583,34 +1492,11 @@ const Chat = {
   pollTimer: null,
   listPollTimer: null,
   lastMessageId: 0,
-  lastRenderedDate: null,
-  otherLastReadAt: null,
-  renderedIds: null,
-  _fetchInFlight: false,
-  _sending: false,
-  _conversations: [],
 
   init() {
-    const input = document.getElementById('chat-message-input');
-    const sendBtn = document.getElementById('btn-chat-send');
-    const recordBtn = document.getElementById('btn-chat-record');
-
-    /* Bascule mic ↔ envoi selon que le champ contient du texte (comme WhatsApp),
-       et fait grandir la zone de saisie au fil des lignes (jusqu'à une hauteur max, cf. CSS) */
-    const syncInputState = () => {
-      const hasText = input.value.trim().length > 0;
-      sendBtn.classList.toggle('hidden', !hasText);
-      recordBtn.classList.toggle('hidden', hasText);
-      input.style.height = 'auto';
-      input.style.height = Math.min(input.scrollHeight, 110) + 'px';
-    };
-    input.addEventListener('input', syncInputState);
-    syncInputState();
-
     document.getElementById('btn-chat-send').addEventListener('click', () => this.send());
     document.getElementById('chat-message-input').addEventListener('keydown', (e) => {
-      /* Entrée envoie, Maj+Entrée insère une nouvelle ligne */
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send(); }
+      if (e.key === 'Enter') { e.preventDefault(); this.send(); }
     });
 
     /* Pièce jointe (photo ou fichier) */
@@ -1636,15 +1522,6 @@ const Chat = {
 
     /* Message vocal */
     document.getElementById('btn-chat-record').addEventListener('click', () => this.toggleRecording());
-
-    /* Recherche dans la liste des conversations (comme WhatsApp) */
-    document.getElementById('search-conversations')?.addEventListener('input', (e) => {
-      const q = e.target.value.trim().toLowerCase();
-      const filtered = !q ? this._conversations : this._conversations.filter(c =>
-        (c.title || '').toLowerCase().includes(q) || (c.last_message || '').toLowerCase().includes(q)
-      );
-      this.renderConversationsList(filtered);
-    });
   },
 
   mediaRecorder: null,
@@ -1690,31 +1567,15 @@ const Chat = {
 
   async sendAttachment(type, dataUrl, name) {
     if (!this.currentConversationId) return;
-    const list = document.getElementById('chat-messages-list');
-    list.querySelector('.empty-state')?.remove();
-    const pendingEl = this.renderBubble(
-      {
-        id: `pending-${Date.now()}`, sender_id: App.currentUser.id, body: '', created_at: null,
-        attachment_type: type, attachment_data: dataUrl, attachment_name: name
-      },
-      { pending: true }
-    );
-    list.appendChild(pendingEl);
-    list.scrollTop = list.scrollHeight;
-
-    try {
-      const res = await API.request('sendMessage', {
-        conversationId: this.currentConversationId,
-        body: '',
-        attachmentType: type,
-        attachmentData: dataUrl,
-        attachmentName: name
-      });
-      if (res.success) await this.fetchMessages(false);
-      else Toast.show(res.message || 'Envoi impossible', 'error');
-    } finally {
-      pendingEl.remove();
-    }
+    const res = await API.request('sendMessage', {
+      conversationId: this.currentConversationId,
+      body: '',
+      attachmentType: type,
+      attachmentData: dataUrl,
+      attachmentName: name
+    });
+    if (res.success) await this.fetchMessages(false);
+    else Toast.show(res.message || 'Envoi impossible', 'error');
   },
 
   /* Rafraîchit périodiquement le badge de messages non lus, même en dehors
@@ -1739,21 +1600,14 @@ const Chat = {
     const list = document.getElementById('chat-conversations-list');
     if (list) list.innerHTML = UI.skeletonRows(4);
     const res = await API.request('getConversations');
-    if (!res.success) { if (list) list.innerHTML = ''; return; }
-    this._conversations = res.data;
-    this.renderConversationsList(res.data);
-  },
-
-  renderConversationsList(data) {
-    const list = document.getElementById('chat-conversations-list');
     list.innerHTML = '';
-    if (!data.length) {
+    if (!res.success || !res.data.length) {
       list.innerHTML = UI.emptyState('Aucune conversation pour le moment. Démarrez-en une depuis vos contacts !', 'contacts', 'Voir mes contacts');
       this.updateUnreadBadge(0);
       return;
     }
     let totalUnread = 0;
-    data.forEach(c => {
+    res.data.forEach(c => {
       totalUnread += c.unread || 0;
       list.appendChild(this.renderConversationItem(c));
     });
@@ -1762,7 +1616,7 @@ const Chat = {
 
   renderConversationItem(c) {
     const div = document.createElement('div');
-    div.className = 'conversation-item' + (c.unread ? ' has-unread' : '');
+    div.className = 'conversation-item';
     const photo = c.avatar_photo;
     const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
     const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
@@ -1804,30 +1658,7 @@ const Chat = {
     this.currentConversationId = conversationId;
     this.currentTitle = title || 'Discussion';
     this.lastMessageId = 0;
-    this.lastRenderedDate = null;
-    this.otherLastReadAt = null;
-    this.renderedIds = new Set();
-    this._fetchInFlight = false;
-    this._sending = false;
     Nav.go('chat-thread', this.currentTitle);
-    RouteMemory.save('chat-thread', this.currentTitle, { conversationId, avatar, avatarPhoto });
-
-    /* Avatar + nom du contact dans la topbar, comme WhatsApp */
-    const avatarEl = document.getElementById('topbar-chat-avatar');
-    const nameEl = document.getElementById('topbar-chat-name');
-    if (avatarEl && nameEl) {
-      nameEl.textContent = this.currentTitle;
-      if (avatarPhoto) {
-        avatarEl.classList.add('has-photo');
-        avatarEl.style.backgroundImage = `url('${avatarPhoto}')`;
-        avatarEl.textContent = '';
-      } else {
-        avatarEl.classList.remove('has-photo');
-        avatarEl.style.backgroundImage = '';
-        avatarEl.textContent = (avatar && avatar.length <= 4) ? avatar : this.currentTitle.slice(0, 2).toUpperCase();
-      }
-    }
-
     document.getElementById('chat-messages-list').innerHTML = '<div class="empty-state small"><p>Chargement…</p></div>';
     await this.fetchMessages(true);
     this.pollTimer = setInterval(() => this.fetchMessages(false), 3000);
@@ -1839,161 +1670,63 @@ const Chat = {
 
   async fetchMessages(initial) {
     if (!this.currentConversationId) return;
-    /* Empêche deux requêtes simultanées (ex: polling + envoi) de retomber
-       sur les mêmes messages avant que lastMessageId n'ait été mis à jour —
-       c'est ce qui causait l'affichage en double. */
-    if (this._fetchInFlight) return;
-    this._fetchInFlight = true;
-    try {
-      const res = await API.request('getMessages', {
-        conversationId: this.currentConversationId,
-        sinceId: initial ? 0 : this.lastMessageId
-      });
-      if (!res.success) return;
-      const messages = res.data.messages || [];
-      this.otherLastReadAt = res.data.otherLastReadAt || null;
-      const list = document.getElementById('chat-messages-list');
-      if (initial) { list.innerHTML = ''; this.renderedIds = new Set(); this.lastRenderedDate = null; }
-      if (!messages.length) {
-        if (initial) list.innerHTML = '<div class="empty-state small"><p>Dites bonjour 👋</p></div>';
-        this.updateTicks();
-        return;
-      }
-      const wasEmpty = list.querySelector('.empty-state');
-      if (wasEmpty) list.innerHTML = '';
-      let appended = false;
-      messages.forEach(m => {
-        this.lastMessageId = Math.max(this.lastMessageId, m.id);
-        /* Sécurité supplémentaire : ne jamais afficher deux fois le même message */
-        if (this.renderedIds.has(m.id)) return;
-        this.renderedIds.add(m.id);
-        const dateKey = m.created_at ? m.created_at.slice(0, 10) : null;
-        if (dateKey && dateKey !== this.lastRenderedDate) {
-          const sep = document.createElement('div');
-          sep.className = 'chat-date-sep';
-          sep.textContent = this.formatDateSeparator(dateKey);
-          list.appendChild(sep);
-          this.lastRenderedDate = dateKey;
-        }
-        list.appendChild(this.renderBubble(m));
-        appended = true;
-      });
-      if (appended) list.scrollTop = list.scrollHeight;
-      this.updateTicks();
-    } finally {
-      this._fetchInFlight = false;
+    const res = await API.request('getMessages', {
+      conversationId: this.currentConversationId,
+      sinceId: initial ? 0 : this.lastMessageId
+    });
+    if (!res.success) return;
+    const list = document.getElementById('chat-messages-list');
+    if (initial) list.innerHTML = '';
+    if (!res.data.length) {
+      if (initial) list.innerHTML = '<div class="empty-state small"><p>Dites bonjour 👋</p></div>';
+      return;
     }
+    const wasEmpty = list.querySelector('.empty-state');
+    if (wasEmpty) list.innerHTML = '';
+    res.data.forEach(m => {
+      this.lastMessageId = Math.max(this.lastMessageId, m.id);
+      list.appendChild(this.renderBubble(m));
+    });
+    list.scrollTop = list.scrollHeight;
   },
 
-  /* "Aujourd'hui" / "Hier" / date complète — comme les séparateurs WhatsApp */
-  formatDateSeparator(dateKey) {
-    const d = new Date(dateKey + 'T00:00:00');
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-    if (d.getTime() === today.getTime()) return "Aujourd'hui";
-    if (d.getTime() === yesterday.getTime()) return 'Hier';
-    return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
-  },
-
-  renderBubble(m, opts = {}) {
+  renderBubble(m) {
     const div = document.createElement('div');
     const mine = String(m.sender_id) === String(App.currentUser?.id);
-    div.className = `chat-bubble ${mine ? 'mine' : 'theirs'}${m.attachment_type ? ' attachment' : ''}${opts.pending ? ' pending' : ''}`;
-    div.dataset.id = m.id;
-    if (m.created_at) div.dataset.createdAt = m.created_at;
+    div.className = `chat-bubble ${mine ? 'mine' : 'theirs'}${m.attachment_type ? ' attachment' : ''}`;
     const time = m.created_at ? new Date(m.created_at.replace(' ', 'T')).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
 
     let content = '';
     if (m.attachment_type === 'image') {
-      content = `<div class="chat-media-wrap"><img class="chat-image" src="${m.attachment_data}" alt="${UI.escapeHtml(m.attachment_name || 'Photo')}" />${opts.pending ? '<div class="chat-upload-overlay"><span class="spinner"></span></div>' : ''}</div>`;
+      content = `<img class="chat-image" src="${m.attachment_data}" alt="${UI.escapeHtml(m.attachment_name || 'Photo')}" />`;
     } else if (m.attachment_type === 'audio') {
-      content = `<div class="chat-media-wrap"><audio class="chat-audio" controls src="${m.attachment_data}"></audio>${opts.pending ? '<div class="chat-upload-overlay"><span class="spinner"></span></div>' : ''}</div>`;
+      content = `<audio class="chat-audio" controls src="${m.attachment_data}"></audio>`;
     } else if (m.attachment_type === 'file') {
       content = `
         <div class="chat-file">
           <svg width="22" height="22" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
           <span class="chat-file-name">${UI.escapeHtml(m.attachment_name || 'Fichier')}</span>
-          ${opts.pending
-            ? '<span class="spinner"></span>'
-            : `<a href="${m.attachment_data}" download="${UI.escapeHtml(m.attachment_name || 'fichier')}" class="btn-icon" aria-label="Télécharger"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></a>`}
+          <a href="${m.attachment_data}" download="${UI.escapeHtml(m.attachment_name || 'fichier')}" class="btn-icon" aria-label="Télécharger">
+            <svg width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </a>
         </div>`;
     }
     if (m.body) content += `<div>${UI.escapeHtml(m.body)}</div>`;
-
-    /* Statut façon WhatsApp, uniquement sur mes propres messages :
-       ⏱ en cours d'envoi → ✓ envoyé → ✓✓ (bleu) lu par le destinataire */
-    let ticks = '';
-    if (mine) {
-      let state = 'sent';
-      if (opts.pending) state = 'pending';
-      else if (this.otherLastReadAt && m.created_at && m.created_at <= this.otherLastReadAt) state = 'read';
-      ticks = `<span class="chat-ticks ticks-${state}">${this.tickIcon(state)}</span>`;
-    }
-
-    div.innerHTML = `${content}<span class="chat-bubble-time">${time}${ticks}</span>`;
+    div.innerHTML = `${content}<span class="chat-bubble-time">${time}</span>`;
     return div;
   },
 
-  tickIcon(state) {
-    if (state === 'pending') {
-      return '<svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>';
-    }
-    if (state === 'read') {
-      return '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M1 12l5 5L17 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M8 12l5 5L24 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
-    }
-    /* sent (une seule coche) */
-    return '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 12l5 5L19 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
-  },
-
-  /* Met à jour les coches déjà affichées (sans tout re-rendre) quand le
-     destinataire lit la conversation pendant qu'on est encore à l'écran. */
-  updateTicks() {
-    if (!this.otherLastReadAt) return;
-    document.querySelectorAll('#chat-messages-list .chat-bubble.mine[data-created-at]').forEach(el => {
-      if (el.classList.contains('pending')) return;
-      if (el.dataset.createdAt <= this.otherLastReadAt) {
-        const ticksEl = el.querySelector('.chat-ticks');
-        if (ticksEl && !ticksEl.classList.contains('ticks-read')) {
-          ticksEl.className = 'chat-ticks ticks-read';
-          ticksEl.innerHTML = this.tickIcon('read');
-        }
-      }
-    });
-  },
-
   async send() {
-    if (this._sending) return;
     const input = document.getElementById('chat-message-input');
     const body = input.value.trim();
     if (!body || !this.currentConversationId) return;
-    this._sending = true;
     input.value = '';
-    input.style.height = 'auto';
-    input.dispatchEvent(new Event('input'));
-
-    /* Bulle optimiste "en cours d'envoi" (horloge), remplacée par le vrai
-       message dès que le serveur confirme — exactement le comportement WhatsApp. */
-    const list = document.getElementById('chat-messages-list');
-    list.querySelector('.empty-state')?.remove();
-    const pendingEl = this.renderBubble(
-      { id: `pending-${Date.now()}`, sender_id: App.currentUser.id, body, created_at: null },
-      { pending: true }
-    );
-    list.appendChild(pendingEl);
-    list.scrollTop = list.scrollHeight;
-
-    try {
-      const res = await API.request('sendMessage', { conversationId: this.currentConversationId, body });
-      if (res.success) {
-        await this.fetchMessages(false);
-      } else {
-        Toast.show(res.message || 'Message non envoyé', 'error');
-        input.value = body;
-        input.dispatchEvent(new Event('input'));
-      }
-    } finally {
-      pendingEl.remove();
-      this._sending = false;
+    const res = await API.request('sendMessage', { conversationId: this.currentConversationId, body });
+    if (res.success) {
+      await this.fetchMessages(false);
+    } else {
+      Toast.show(res.message || 'Message non envoyé', 'error');
+      input.value = body;
     }
   }
 };
@@ -2254,24 +1987,6 @@ const Storage = {
   }
 };
 
-/* ═══════════════════════════════ ROUTE MEMORY ═══════════════════════════════
-   Retient la dernière page visitée (et son contexte : ID de tontine ou de
-   conversation) pour qu'un rafraîchissement (F5) rouvre la même page au lieu
-   de toujours revenir au tableau de bord. Stocké en sessionStorage : propre
-   à l'onglet, effacé à la fermeture. */
-const RouteMemory = {
-  KEY: 'tf_last_route',
-  save(page, title = '', context = null) {
-    try { sessionStorage.setItem(this.KEY, JSON.stringify({ page, title, context })); } catch {}
-  },
-  load() {
-    try { return JSON.parse(sessionStorage.getItem(this.KEY)); } catch { return null; }
-  },
-  clear() {
-    try { sessionStorage.removeItem(this.KEY); } catch {}
-  }
-};
-
 /* ═══════════════════════════════ PWA MANIFEST ═══════════════════════════════ */
 function setupPWA() {
   /* Inline manifest */
@@ -2293,25 +2008,6 @@ function setupPWA() {
 }
 
 /* ═══════════════════════════════ EVENT LISTENERS ═══════════════════════════════ */
-const PAGE_TITLES = {
-  invite: 'Inviter', contacts: 'Contacts', chat: 'Messages',
-  terms: "Conditions d'utilisation", privacy: 'Confidentialité',
-  transactions: 'Transactions', 'audit-log': 'Journal'
-};
-
-/* Navigue vers une page "simple" (sans contexte supplémentaire type ID) en
-   chargeant ses données si besoin — utilisé par les clics [data-page] ET
-   par la restauration de page après un rafraîchissement (F5). */
-function goToPage(page) {
-  if (page === 'transactions') Transactions.load();
-  if (page === 'audit-log') AuditLog.load();
-  if (page === 'profile') Profile.load();
-  if (page === 'invite') Invite.loadTontines();
-  if (page === 'contacts') Contacts.load();
-  if (page === 'chat') Chat.loadConversations();
-  Nav.go(page, PAGE_TITLES[page] || '');
-}
-
 function setupEventListeners() {
   /* Global data-page click handler */
   document.addEventListener('click', (e) => {
@@ -2321,7 +2017,19 @@ function setupEventListeners() {
       if (page) {
         e.preventDefault();
         Nav.closeMenu();
-        goToPage(page);
+        /* Load page data on navigate */
+        if (page === 'transactions') Transactions.load();
+        if (page === 'audit-log') AuditLog.load();
+       if (page === 'profile') Profile.load();
+        if (page === 'invite') Invite.loadTontines();
+        if (page === 'contacts') Contacts.load();
+        if (page === 'chat') Chat.loadConversations();
+        const titles = {
+          invite: 'Inviter', contacts: 'Contacts', chat: 'Messages',
+          terms: "Conditions d'utilisation", privacy: 'Confidentialité',
+          transactions: 'Transactions', 'audit-log': 'Journal'
+        };
+        Nav.go(page, titles[page] || '');
       }
     }
   });
@@ -2390,35 +2098,10 @@ function setupEventListeners() {
   document.getElementById('modal-close').addEventListener('click', () => Modal.close());
 
   /* Browser back button */
-  window.addEventListener('popstate', () => Nav.back(true));
+  window.addEventListener('popstate', () => Nav.back());
 }
 
 /* ═══════════════════════════════ INIT ═══════════════════════════════ */
-
-/* Restaure la page où se trouvait l'utilisateur avant un rafraîchissement.
-   Retombe silencieusement sur le dashboard si le contexte est absent/invalide
-   (ex: tontine supprimée entre-temps). */
-async function restoreRoute(route) {
-  if (!route || !route.page || route.page === 'auth') { Nav.go('dashboard'); return; }
-  try {
-    if (route.page === 'tontine-detail' && route.context?.tontineId) {
-      await TontineDetail.openById(route.context.tontineId);
-      if (!document.getElementById('page-tontine-detail')?.classList.contains('active')) Nav.go('dashboard');
-      return;
-    }
-    if (route.page === 'chat-thread' && route.context?.conversationId) {
-      await Chat.openThread(route.context.conversationId, route.title, route.context.avatar, route.context.avatarPhoto);
-      if (!document.getElementById('page-chat-thread')?.classList.contains('active')) Nav.go('dashboard');
-      return;
-    }
-    const pageEl = document.getElementById(`page-${route.page}`);
-    if (!pageEl) { Nav.go('dashboard'); return; }
-    goToPage(route.page);
-  } catch (err) {
-    console.error('Restauration de page échouée:', err);
-    Nav.go('dashboard');
-  }
-}
 
 async function init() {
 
@@ -2446,12 +2129,11 @@ async function init() {
   /* 3. Déterminer et activer la bonne page AVANT d'afficher l'app,
         pour éviter le flash du formulaire de connexion au démarrage */
   const isLoggedIn = !!(savedUser && savedToken);
-  const savedRoute = isLoggedIn ? RouteMemory.load() : null;
   if (isLoggedIn) {
     App.currentUser = savedUser;
     App.token = savedToken;
     UI.updateUserInfo();
-    await restoreRoute(savedRoute);
+    Nav.go('dashboard');
   } else {
     Nav.go('auth');
   }
