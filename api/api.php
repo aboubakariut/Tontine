@@ -1186,7 +1186,7 @@ try {
             if (!preg_match('/^6[5-9]\d{7}$/', $number)) error('Numéro camerounais invalide (9 chiffres, commence par 6).');
 
             DB::q("UPDATE tontines SET momo_operator = ?, momo_number = ? WHERE id = ?", [$operator, $number, $tid]);
-            audit('admin', 'Numéro Mobile Money mis à jour', "$operator — $number", $user['id'], $tid);
+            audit('tontine', 'Numéro Mobile Money mis à jour', "$operator — $number", $user['id'], $tid);
             success(['momoOperator' => $operator, 'momoNumber' => $number], 'Numéro enregistré !');
         }
 
@@ -1855,16 +1855,8 @@ try {
             $sql .= " ORDER BY m.id ASC LIMIT 200";
             $messages = DB::rows($sql, $params);
 
-            /* Dernière lecture de l'AUTRE participant (conversation 1-à-1) :
-               permet d'afficher les doubles coches "lu" façon WhatsApp,
-               sans avoir à suivre un statut par message. */
-            $other = DB::row(
-                "SELECT last_read_at FROM conversation_participants WHERE conversation_id = ? AND user_id != ? LIMIT 1",
-                [$convId, $user['id']]
-            );
-
             DB::q("UPDATE conversation_participants SET last_read_at = NOW() WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
-            success(['messages' => $messages, 'otherLastReadAt' => $other['last_read_at'] ?? null]);
+            success($messages);
         }
 
         case 'sendMessage': {
