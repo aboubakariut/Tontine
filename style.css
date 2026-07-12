@@ -867,7 +867,13 @@ ul { list-style: none; }
 .tontine-card-header {
   display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;
 }
-.tontine-card-name { font-size: var(--fs-base); font-weight: 700; color: var(--color-text); }
+.tontine-card-name { display: flex; align-items: center; gap: 8px; font-size: var(--fs-base); font-weight: 700; color: var(--color-text); }
+.tontine-card-icon {
+  width: 26px; height: 26px;
+  border-radius: var(--r-sm, 6px);
+  background-size: cover; background-position: center;
+  flex-shrink: 0;
+}
 .tontine-card-body { display: flex; gap: var(--sp-md); font-size: var(--fs-sm); color: var(--color-text-2); }
 .tontine-card-stat { display: flex; flex-direction: column; gap: 2px; }
 .tontine-card-stat span:first-child { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-3); }
@@ -944,6 +950,15 @@ ul { list-style: none; }
 }
 .tontine-title-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
 .tontine-title-row h2 { font-size: var(--fs-lg); font-weight: 800; }
+.tontine-title-with-icon { display: flex; align-items: center; gap: 12px; }
+.tontine-detail-icon {
+  width: 44px; height: 44px;
+  border-radius: var(--r-md, 10px);
+  background-size: cover; background-position: center;
+  flex-shrink: 0;
+  display: none;
+}
+.tontine-detail-icon.has-photo { display: block; }
 .tontine-actions { display: flex; gap: 6px; }
 .tontine-actions .btn-icon { color: rgba(255,255,255,0.8); }
 .tontine-actions .btn-icon:hover { background: rgba(255,255,255,0.2); color: #fff; }
@@ -1275,6 +1290,20 @@ ul { list-style: none; }
 }
 .invite-code-box .btn-icon { color: var(--color-primary); }
 .invite-hint { font-size: var(--fs-xs); color: var(--color-text-3); }
+
+/* ─── ICÔNE DE LA TONTINE (paramètres, admin) ─── */
+.tontine-icon-picker { display: flex; align-items: center; gap: 14px; }
+.tontine-icon-preview {
+  width: 64px; height: 64px;
+  border-radius: var(--r-lg, 14px);
+  background: var(--gradient-hero);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: var(--fs-md);
+  flex-shrink: 0;
+  background-size: cover; background-position: center;
+}
+.tontine-icon-picker-actions { display: flex; flex-direction: column; gap: 6px; }
 
 /* ═══════════════════════════════ SETTINGS ═══════════════════════════════ */
 .setting-item {

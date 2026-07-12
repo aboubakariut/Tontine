@@ -198,7 +198,7 @@ const Nav = {
     if (navBtn) navBtn.classList.add('active');
 
     /* Topbar mode */
-    const isRoot = ['dashboard', 'my-tontines', 'create-tontine', 'join-tontine', 'profile', 'settings', 'auth'].includes(page);
+    const isRoot = ['dashboard', 'my-tontines', 'create-tontine', 'join-tontine', 'profile', 'auth'].includes(page);
     const topbarLogo = document.getElementById('topbar-logo');
     const topbarTitle = document.getElementById('topbar-title');
     const topbarChatInfo = document.getElementById('topbar-chat-info');
@@ -209,15 +209,16 @@ const Nav = {
     if (page === 'auth') {
       topbar.style.display = 'none';
       bottomNav.style.display = 'none';
-    } else if (page === 'chat-thread') {
-      /* Mode plein écran : on masque la navbar du bas pour laisser toute
-         la place au fil de discussion + la zone de saisie fixe */
+    } else if (page === 'chat-thread' || page === 'chat') {
+      /* Mode plein écran pour toute la zone messagerie (liste des
+         conversations ET fil de discussion) : on masque la navbar du bas,
+         comme WhatsApp — elle n'a pas sa place ici. */
       topbar.style.display = 'flex';
       bottomNav.style.display = 'none';
       document.getElementById('app').classList.add('chat-open');
       /* Si on revient sur cette page via l'historique (précédente conversation
          encore affichée), on relance le polling s'il n'est pas déjà actif */
-      if (typeof Chat !== 'undefined' && Chat.currentConversationId && !Chat.pollTimer) {
+      if (page === 'chat-thread' && typeof Chat !== 'undefined' && Chat.currentConversationId && !Chat.pollTimer) {
         Chat.fetchMessages(false);
         Chat.pollTimer = setInterval(() => Chat.fetchMessages(false), 3000);
       }
@@ -571,6 +572,16 @@ const TontineDetail = {
   render(t) {
     /* Header */
     document.getElementById('detail-name').textContent = t.name;
+    const detailIcon = document.getElementById('detail-icon');
+    if (detailIcon) {
+      if (t.icon) {
+        detailIcon.classList.add('has-photo');
+        detailIcon.style.backgroundImage = `url('${t.icon}')`;
+      } else {
+        detailIcon.classList.remove('has-photo');
+        detailIcon.style.backgroundImage = '';
+      }
+    }
     document.getElementById('detail-desc').textContent = t.description || '';
     document.getElementById('detail-amount').textContent = UI.formatAmount(t.amount);
     document.getElementById('detail-freq').textContent = UI.freqLabel(t.frequency);
@@ -914,7 +925,21 @@ const TontineDetail = {
 
   async openSettings() {
     const t = App.currentTontine;
+    const iconPreview = t.icon
+      ? `<div class="tontine-icon-preview has-photo" id="tontine-icon-preview" style="background-image:url('${t.icon}')"></div>`
+      : `<div class="tontine-icon-preview" id="tontine-icon-preview">${(t.name || '?').slice(0, 2).toUpperCase()}</div>`;
     Modal.open('Paramètres de la tontine', `
+      <div class="form-group">
+        <label class="form-label">Icône de la tontine</label>
+        <div class="tontine-icon-picker">
+          ${iconPreview}
+          <div class="tontine-icon-picker-actions">
+            <input type="file" id="tontine-icon-input" accept="image/*" style="display:none" />
+            <button class="btn-secondary btn-sm" id="btn-pick-tontine-icon">Choisir une image</button>
+            ${t.icon ? '<button class="btn-ghost btn-sm" id="btn-remove-tontine-icon" style="color:var(--color-red)">Retirer</button>' : ''}
+          </div>
+        </div>
+      </div>
       <div class="form-group">
         <label class="form-label">Nom de la tontine</label>
         <input type="text" class="form-input" id="edit-tontine-name" value="${(t.name || '').replace(/"/g, '&quot;')}" maxlength="60" />
@@ -957,8 +982,51 @@ const TontineDetail = {
           ⚠️ Fermer une tontine est irréversible. Tous les membres seront notifiés.
         </p>
         <button class="btn-danger btn-full" id="btn-close-tontine">🔒 Fermer définitivement la tontine</button>
+
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin:14px 0 8px">
+          ⛔ Supprimer efface définitivement la tontine et toutes ses données (membres, paiements, journal, chat). Impossible à annuler.
+        </p>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-2);margin-bottom:6px">
+          Pour confirmer, tapez exactement : <strong>supprimer la tontine ${UI.escapeHtml(t.name || '')}</strong>
+        </p>
+        <input type="text" class="form-input" id="delete-confirm-input" placeholder="supprimer la tontine ${(t.name || '').replace(/"/g, '&quot;')}" style="margin-bottom:8px" autocomplete="off" />
+        <button class="btn-danger btn-full" id="btn-delete-tontine" disabled style="opacity:0.5">🗑️ Supprimer définitivement la tontine</button>
       </div>
     `);
+
+    /* Icône de la tontine */
+    const iconInput = document.getElementById('tontine-icon-input');
+    const iconPreviewEl = document.getElementById('tontine-icon-preview');
+    document.getElementById('btn-pick-tontine-icon')?.addEventListener('click', () => iconInput.click());
+    iconInput?.addEventListener('change', async () => {
+      const file = iconInput.files[0];
+      if (!file) return;
+      const base64 = await UI.resizeImageToBase64(file, 300, 0.75);
+      const res = await API.request('updateTontineIcon', { tontineId: t.id, icon: base64 });
+      if (res.success) {
+        Toast.show('Icône mise à jour !', 'success');
+        t.icon = res.data.icon;
+        iconPreviewEl.classList.add('has-photo');
+        iconPreviewEl.style.backgroundImage = `url('${res.data.icon}')`;
+        iconPreviewEl.textContent = '';
+        this.refresh(t.id);
+        Dashboard.load();
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
+      }
+    });
+    document.getElementById('btn-remove-tontine-icon')?.addEventListener('click', async () => {
+      const res = await API.request('updateTontineIcon', { tontineId: t.id, icon: null });
+      if (res.success) {
+        Toast.show('Icône retirée.', 'success');
+        t.icon = null;
+        iconPreviewEl.classList.remove('has-photo');
+        iconPreviewEl.style.backgroundImage = '';
+        iconPreviewEl.textContent = (t.name || '?').slice(0, 2).toUpperCase();
+        this.refresh(t.id);
+        Dashboard.load();
+      }
+    });
 
     document.getElementById('btn-save-tontine-info')?.addEventListener('click', async (e) => {
       const btn = e.currentTarget;
@@ -1026,6 +1094,40 @@ const TontineDetail = {
         Nav.go('my-tontines');
       } else {
         Toast.show(res.message || 'Erreur', 'error');
+      }
+    });
+
+    /* Suppression définitive : le bouton ne s'active que si le texte tapé
+       correspond EXACTEMENT (nom de la tontine inclus), pour éviter tout
+       clic accidentel sur une action aussi destructrice. */
+    const expectedDeleteText = `supprimer la tontine ${t.name || ''}`.trim().toLowerCase();
+    const deleteInput = document.getElementById('delete-confirm-input');
+    const deleteBtn = document.getElementById('btn-delete-tontine');
+    deleteInput?.addEventListener('input', () => {
+      const matches = deleteInput.value.trim().toLowerCase() === expectedDeleteText;
+      deleteBtn.disabled = !matches;
+      deleteBtn.style.opacity = matches ? '1' : '0.5';
+    });
+    deleteBtn?.addEventListener('click', async () => {
+      if (deleteBtn.disabled) return;
+      const doubleCheck = await Modal.confirm(
+        'Dernière confirmation',
+        `Cette action supprimera définitivement "${t.name}", tous ses membres, paiements, son journal et son chat de groupe. C'est irréversible.`,
+        'Oui, supprimer définitivement'
+      );
+      if (!doubleCheck) return;
+      deleteBtn.disabled = true;
+      deleteBtn.textContent = 'Suppression...';
+      const res = await API.request('deleteTontine', { tontineId: t.id, confirmText: deleteInput.value.trim() });
+      if (res.success) {
+        Toast.show('Tontine supprimée.', 'success');
+        Modal.close();
+        await Dashboard.load();
+        Nav.go('my-tontines');
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = '🗑️ Supprimer définitivement la tontine';
       }
     });
   }
@@ -2209,9 +2311,12 @@ const UI = {
     const div = document.createElement('div');
     div.className = 'tontine-card';
     const progress = t.totalTours ? (t.currentTour / t.totalTours) * 100 : 0;
+    const iconHtml = t.icon
+      ? `<div class="tontine-card-icon has-photo" style="background-image:url('${t.icon}')"></div>`
+      : '';
     div.innerHTML = `
       <div class="tontine-card-header">
-        <span class="tontine-card-name">${t.name}</span>
+        <span class="tontine-card-name">${iconHtml}${t.name}</span>
         <span class="badge ${t.badge}">${t.badgeText}</span>
       </div>
       <div class="tontine-card-body">
@@ -2312,15 +2417,37 @@ const UI = {
 
 /* ═══════════════════════════════ MODAL ═══════════════════════════════ */
 const Modal = {
+  _pushedState: false,
+  _ignoreNextPopstate: false,
+  _closingFromPopstate: false,
+
   open(title, bodyHTML, footerHTML = '') {
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-body').innerHTML = bodyHTML;
     document.getElementById('modal-footer').innerHTML = footerHTML;
     document.getElementById('modal-overlay').classList.remove('hidden');
+    /* Pousse une entrée d'historique dédiée : un appui sur le retour
+       physique/geste ferme d'abord le modal, comme dans toute app native,
+       au lieu de naviguer la page qui se trouve derrière. */
+    if (!this._pushedState) {
+      try { history.pushState({ tfModal: true }, '', location.href); } catch {}
+      this._pushedState = true;
+    }
   },
 
   close() {
     document.getElementById('modal-overlay').classList.add('hidden');
+    if (this._pushedState) {
+      this._pushedState = false;
+      if (!this._closingFromPopstate) {
+        /* Fermeture "manuelle" (bouton, clic hors modal...) : on consomme
+           nous-mêmes l'entrée d'historique poussée à l'ouverture, sinon un
+           prochain retour ne ferait rien de visible. */
+        this._ignoreNextPopstate = true;
+        try { history.back(); } catch {}
+      }
+    }
+    this._closingFromPopstate = false;
   },
 
   confirm(title, message, confirmText = 'Confirmer') {
@@ -2506,7 +2633,16 @@ function setupEventListeners() {
   document.getElementById('modal-close').addEventListener('click', () => Modal.close());
 
   /* Browser back button */
-  window.addEventListener('popstate', () => Nav.back(true));
+  window.addEventListener('popstate', () => {
+    if (Modal._ignoreNextPopstate) { Modal._ignoreNextPopstate = false; return; }
+    const modalOverlay = document.getElementById('modal-overlay');
+    if (modalOverlay && !modalOverlay.classList.contains('hidden')) {
+      Modal._closingFromPopstate = true;
+      Modal.close();
+      return;
+    }
+    Nav.back(true);
+  });
 }
 
 /* ═══════════════════════════════ INIT ═══════════════════════════════ */
