@@ -231,6 +231,10 @@ class DB {
         self::addColumnIfMissing('tontines', 'momo_operator', "VARCHAR(10) NULL"); /* mtn | orange */
         self::addColumnIfMissing('tontines', 'momo_number', "VARCHAR(15) NULL");
 
+        /* ── Icône de la tontine (facultative) ──
+           Choisie par l'administrateur, affichée sur la carte et l'en-tête. */
+        self::addColumnIfMissing('tontines', 'icon', 'LONGTEXT NULL');
+
         /* ── Notifications : lien vers l'élément précis concerné (ex: l'ID
            de la demande d'adhésion) pour pouvoir y accéder directement au
            clic, sans que l'utilisateur ait à la rechercher dans une liste. */
@@ -1240,6 +1244,24 @@ try {
         }
 
         /* ────────────────────────────────────
+           TONTINES: ICÔNE (admin)
+           ──────────────────────────────────── */
+        case 'updateTontineIcon': {
+            $user = Auth::requireAdmin($input, (int)($input['tontineId'] ?? 0));
+            $tid  = (int)($input['tontineId'] ?? 0);
+            $icon = $input['icon'] ?? null;
+
+            if ($icon !== null) {
+                if (!preg_match('/^data:image\/(png|jpe?g|webp);base64,/', $icon)) error('Format d\'image invalide.');
+                if (strlen($icon) > 900_000) error('Image trop volumineuse.');
+            }
+
+            DB::q("UPDATE tontines SET icon = ? WHERE id = ?", [$icon, $tid]);
+            audit('admin', $icon ? 'Icône de la tontine mise à jour' : 'Icône de la tontine retirée', '', $user['id'], $tid);
+            success(['icon' => $icon], $icon ? 'Icône mise à jour !' : 'Icône retirée.');
+        }
+
+        /* ────────────────────────────────────
            PAYMENTS: NEXT TOUR (admin)
            ──────────────────────────────────── */
         case 'nextTour': {
@@ -1713,6 +1735,39 @@ try {
             DB::q("UPDATE tontines SET status = 'closed' WHERE id = ?", [$tid]);
             audit('admin', 'Tontine fermée', "Tontine #{$tid} — {$t['name']}", $user['id'], $tid);
             success(null, 'Tontine fermée avec succès.');
+        }
+
+        /* ────────────────────────────────────
+           TONTINES: SUPPRESSION DÉFINITIVE (admin)
+           Contrairement à "fermer" (qui garde l'historique et se contente de
+           changer le statut), ceci efface la tontine et toutes ses données
+           liées (membres, paiements, versements, invitations, chat de
+           groupe). Pour éviter une suppression accidentelle, l'administrateur
+           doit taper une phrase exacte incluant le nom de la tontine —
+           vérifiée aussi côté serveur, pas seulement dans l'interface.
+           ──────────────────────────────────── */
+        case 'deleteTontine': {
+            $tid  = (int)($input['tontineId'] ?? 0);
+            $user = Auth::requireAdmin($input, $tid);
+            if (!$tid) error('ID tontine manquant.');
+            $t = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
+            if (!$t) error('Tontine introuvable.');
+
+            $expected = mb_strtolower(trim('supprimer la tontine ' . $t['name']));
+            $given    = mb_strtolower(trim($input['confirmText'] ?? ''));
+            if ($given === '' || $given !== $expected) {
+                error('Le texte de confirmation ne correspond pas exactement.');
+            }
+
+            audit('admin', 'Tontine supprimée définitivement', "Tontine #{$tid} — {$t['name']}", $user['id'], $tid);
+
+            /* Le chat de groupe n'a pas de contrainte de suppression en
+               cascade (colonne ajoutée après coup) : on le retire à la main
+               avant de supprimer la tontine elle-même. */
+            DB::q("DELETE FROM conversations WHERE tontine_id = ?", [$tid]);
+            DB::q("DELETE FROM tontines WHERE id = ?", [$tid]);
+
+            success(null, 'Tontine supprimée définitivement.');
         }
 
         /* ────────────────────────────────────
