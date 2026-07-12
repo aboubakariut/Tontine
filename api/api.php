@@ -230,6 +230,23 @@ class DB {
            qu'ils envoient directement leur cotisation en pair-à-pair. */
         self::addColumnIfMissing('tontines', 'momo_operator', "VARCHAR(10) NULL"); /* mtn | orange */
         self::addColumnIfMissing('tontines', 'momo_number', "VARCHAR(15) NULL");
+
+        /* ── Notifications : lien vers l'élément précis concerné (ex: l'ID
+           de la demande d'adhésion) pour pouvoir y accéder directement au
+           clic, sans que l'utilisateur ait à la rechercher dans une liste. */
+        self::addColumnIfMissing('notifications', 'ref_id', 'INT NULL');
+
+        /* ── Chat de groupe par tontine ──
+           Une conversation peut être rattachée à une tontine : elle est
+           alors accessible uniquement à ses membres actifs (pas besoin de
+           gérer manuellement une liste de participants qui évoluerait à
+           chaque adhésion/départ). */
+        self::addColumnIfMissing('conversations', 'tontine_id', 'INT NULL');
+
+        /* ── Preuve de paiement (capture d'écran) ──
+           Un membre peut joindre une capture d'écran de son transfert
+           Mobile Money à sa déclaration de paiement. */
+        self::addColumnIfMissing('payments', 'proof_image', 'LONGTEXT NULL');
     }
 
     public static function migrate(): void {
@@ -500,10 +517,30 @@ function audit(string $type, string $action, string $detail = '', ?int $userId =
     );
 }
 
-function notify(int $userId, string $type, string $title, string $body = '', ?int $tontineId = null): void {
+function notify(int $userId, string $type, string $title, string $body = '', ?int $tontineId = null, ?int $refId = null): void {
     DB::insert(
-        "INSERT INTO notifications (user_id, tontine_id, type, title, body) VALUES (?, ?, ?, ?, ?)",
-        [$userId, $tontineId, $type, $title, $body]
+        "INSERT INTO notifications (user_id, tontine_id, type, title, body, ref_id) VALUES (?, ?, ?, ?, ?, ?)",
+        [$userId, $tontineId, $type, $title, $body, $refId]
+    );
+}
+
+/* Un utilisateur a accès à une conversation si :
+   - c'est une conversation 1-à-1 : il figure dans conversation_participants
+   - c'est le chat de groupe d'une tontine : il est membre ACTIF de cette
+     tontine, sans qu'on ait à maintenir une liste de participants à jour
+     à chaque adhésion/départ. */
+function conversationAccessGranted(int $convId, int $userId): bool {
+    $conv = DB::row("SELECT tontine_id FROM conversations WHERE id = ?", [$convId]);
+    if (!$conv) return false;
+    if (!empty($conv['tontine_id'])) {
+        return (bool) DB::row(
+            "SELECT id FROM memberships WHERE tontine_id = ? AND user_id = ? AND status = 'active'",
+            [$conv['tontine_id'], $userId]
+        );
+    }
+    return (bool) DB::row(
+        "SELECT id FROM conversation_participants WHERE conversation_id = ? AND user_id = ?",
+        [$convId, $userId]
     );
 }
 
@@ -611,11 +648,12 @@ function formatTontineResponse(array $t, int $userId): array {
     /* Check payment status per member for current tour */
     foreach ($members as &$m) {
         $pay = DB::row(
-            "SELECT status FROM payments WHERE tontine_id = ? AND user_id = ? AND tour = ?",
+            "SELECT status, proof_image FROM payments WHERE tontine_id = ? AND user_id = ? AND tour = ?",
             [$t['id'], $m['id'], $t['current_tour']]
         );
         $m['paid'] = $pay && $pay['status'] === 'paid';
         $m['paymentPending'] = $pay && $pay['status'] === 'pending';
+        $m['paymentProof'] = $pay['proof_image'] ?? null;
         $m['name'] = $m['firstname'] . ' ' . $m['lastname'];
     }
     $t['members'] = $members;
@@ -928,8 +966,9 @@ try {
 
             if ($exists) {
                 DB::q("UPDATE memberships SET status = ?, tour_order = ? WHERE id = ?", [$status, $order, $exists['id']]);
+                $membershipId = (int)$exists['id'];
             } else {
-                DB::insert("INSERT INTO memberships (tontine_id, user_id, role, status, tour_order) VALUES (?,?,'member',?,?)",
+                $membershipId = DB::insert("INSERT INTO memberships (tontine_id, user_id, role, status, tour_order) VALUES (?,?,'member',?,?)",
                     [$t['id'], $user['id'], $status, $order]);
             }
 
@@ -938,11 +977,15 @@ try {
                 audit('member', 'Nouveau membre', "{$user['firstname']} {$user['lastname']} a rejoint la tontine", $user['id'], $t['id']);
             } else {
                 audit('member', 'Demande d\'adhésion', "{$user['firstname']} {$user['lastname']} a demandé à rejoindre", $user['id'], $t['id']);
-                /* Notify admin */
-                notify($t['created_by'], 'join_request',
-                    'Nouvelle demande d\'adhésion',
-                    "{$user['firstname']} {$user['lastname']} souhaite rejoindre votre tontine.",
-                    $t['id']);
+                /* Notifie TOUS les administrateurs (pas seulement le créateur),
+                   avec l'ID de la demande pour pouvoir y accéder directement au clic */
+                $admins = DB::rows("SELECT user_id FROM memberships WHERE tontine_id = ? AND role = 'admin' AND status = 'active'", [$t['id']]);
+                foreach ($admins as $a) {
+                    notify($a['user_id'], 'join_request',
+                        'Nouvelle demande d\'adhésion',
+                        "{$user['firstname']} {$user['lastname']} souhaite rejoindre votre tontine.",
+                        $t['id'], $membershipId);
+                }
             }
 
             $msg = $status === 'active' ? 'Vous avez rejoint la tontine !' : 'Demande envoyée ! L\'administrateur va l\'examiner.';
@@ -1127,13 +1170,19 @@ try {
             if ($existing && $existing['status'] === 'paid') error('Vous avez déjà payé pour ce tour.');
             if ($existing && $existing['status'] === 'pending') error('Votre paiement est déjà en attente de validation par l\'administrateur.');
 
+            /* Capture d'écran du paiement (optionnelle) — aide l'admin à valider plus vite */
+            $proofImage = $input['proofImage'] ?? null;
+            if ($proofImage !== null && !preg_match('/^data:image\/(png|jpe?g|webp);base64,/', $proofImage)) {
+                error('Format de capture d\'écran invalide.');
+            }
+
             if ($existing) {
-                DB::q("UPDATE payments SET status='pending', recorded_by=?, paid_at=NULL WHERE id=?", [$user['id'], $existing['id']]);
+                DB::q("UPDATE payments SET status='pending', recorded_by=?, paid_at=NULL, proof_image=? WHERE id=?", [$user['id'], $proofImage, $existing['id']]);
                 $payId = (int) $existing['id'];
             } else {
                 $payId = DB::insert(
-                    "INSERT INTO payments (tontine_id, user_id, recorded_by, tour, amount, status) VALUES (?,?,?,?,?,'pending')",
-                    [$tid, $user['id'], $user['id'], $t['current_tour'], (float)$t['amount']]
+                    "INSERT INTO payments (tontine_id, user_id, recorded_by, tour, amount, status, proof_image) VALUES (?,?,?,?,?,'pending',?)",
+                    [$tid, $user['id'], $user['id'], $t['current_tour'], (float)$t['amount'], $proofImage]
                 );
             }
 
@@ -1144,7 +1193,7 @@ try {
             $admins = DB::rows("SELECT user_id FROM memberships WHERE tontine_id=? AND role='admin' AND status='active'", [$tid]);
             foreach ($admins as $a) {
                 notify((int)$a['user_id'], 'payment_declared', 'Paiement à valider',
-                    "$name déclare avoir envoyé " . number_format((float)$t['amount'], 0, ',', ' ') . " FCFA. Confirmez la réception.", $tid);
+                    "$name déclare avoir envoyé " . number_format((float)$t['amount'], 0, ',', ' ') . " FCFA. Confirmez la réception.", $tid, $payId);
             }
 
             success(['paymentId' => $payId], "Déclaration envoyée ! En attente de validation par l'administrateur.");
@@ -1186,7 +1235,7 @@ try {
             if (!preg_match('/^6[5-9]\d{7}$/', $number)) error('Numéro camerounais invalide (9 chiffres, commence par 6).');
 
             DB::q("UPDATE tontines SET momo_operator = ?, momo_number = ? WHERE id = ?", [$operator, $number, $tid]);
-            audit('tontine', 'Numéro Mobile Money mis à jour', "$operator — $number", $user['id'], $tid);
+            audit('admin', 'Numéro Mobile Money mis à jour', "$operator — $number", $user['id'], $tid);
             success(['momoOperator' => $operator, 'momoNumber' => $number], 'Numéro enregistré !');
         }
 
@@ -1779,7 +1828,7 @@ try {
         case 'getConversations': {
             $user = Auth::requireAuth($input);
             $convs = DB::rows(
-                "SELECT c.id, c.is_group, c.title,
+                "SELECT c.id, c.is_group, c.title, c.tontine_id,
                         (SELECT COALESCE(body, CASE attachment_type
                                 WHEN 'image' THEN '📷 Photo'
                                 WHEN 'audio' THEN '🎤 Message vocal'
@@ -1796,6 +1845,17 @@ try {
                  ORDER BY last_at DESC",
                 [$user['id'], $user['id']]
             );
+            $convs = array_values(array_filter($convs, function ($c) use ($user) {
+                /* Un chat de groupe disparaît de la liste si on n'est plus
+                   membre actif de la tontine (ex: retiré par un admin) */
+                if ($c['is_group'] && $c['tontine_id']) {
+                    return (bool) DB::row(
+                        "SELECT id FROM memberships WHERE tontine_id = ? AND user_id = ? AND status = 'active'",
+                        [$c['tontine_id'], $user['id']]
+                    );
+                }
+                return true;
+            }));
             foreach ($convs as &$c) {
                 if (!$c['is_group']) {
                     $other = DB::row(
@@ -1841,13 +1901,13 @@ try {
             $user = Auth::requireAuth($input);
             $convId = (int)($input['conversationId'] ?? 0);
             if (!$convId) error('Conversation manquante.');
-            $isParticipant = DB::row("SELECT id FROM conversation_participants WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
-            if (!$isParticipant) error('Accès refusé.', 403);
+            if (!conversationAccessGranted($convId, $user['id'])) error('Accès refusé.', 403);
 
             $sinceId = (int)($input['sinceId'] ?? 0);
             $params = [$convId];
             $sql = "SELECT m.id, m.sender_id, m.body, m.created_at,
                            m.attachment_type, m.attachment_data, m.attachment_name,
+                           CONCAT(u.firstname, ' ', u.lastname) as sender_name,
                            CONCAT(UPPER(LEFT(u.firstname,1)), UPPER(LEFT(u.lastname,1))) as sender_initials
                     FROM messages m JOIN users u ON u.id = m.sender_id
                     WHERE m.conversation_id = ?";
@@ -1855,8 +1915,67 @@ try {
             $sql .= " ORDER BY m.id ASC LIMIT 200";
             $messages = DB::rows($sql, $params);
 
-            DB::q("UPDATE conversation_participants SET last_read_at = NOW() WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
-            success($messages);
+            /* Dernière lecture de l'AUTRE participant — n'a de sens que pour
+               une conversation 1-à-1 ; en groupe on n'affiche pas de double
+               coche "lu par tous", trop ambigu avec plusieurs destinataires. */
+            $conv = DB::row("SELECT is_group FROM conversations WHERE id = ?", [$convId]);
+            $otherLastReadAt = null;
+            if ($conv && !$conv['is_group']) {
+                $other = DB::row(
+                    "SELECT last_read_at FROM conversation_participants WHERE conversation_id = ? AND user_id != ? LIMIT 1",
+                    [$convId, $user['id']]
+                );
+                $otherLastReadAt = $other['last_read_at'] ?? null;
+            }
+
+            DB::q(
+                "INSERT INTO conversation_participants (conversation_id, user_id, last_read_at) VALUES (?, ?, NOW())
+                 ON DUPLICATE KEY UPDATE last_read_at = NOW()",
+                [$convId, $user['id']]
+            );
+            success(['messages' => $messages, 'otherLastReadAt' => $otherLastReadAt]);
+        }
+
+        /* ────────────────────────────────────
+           CHAT DE GROUPE D'UNE TONTINE
+           Réservé aux membres actifs — l'accès est vérifié dynamiquement
+           (voir conversationAccessGranted), pas via une liste figée.
+           ──────────────────────────────────── */
+        case 'getOrCreateTontineChat': {
+            $user = Auth::requireAuth($input);
+            $tid = (int)($input['tontineId'] ?? 0);
+            if (!$tid) error('Tontine manquante.');
+
+            $isMember = DB::row("SELECT id FROM memberships WHERE tontine_id = ? AND user_id = ? AND status = 'active'", [$tid, $user['id']]);
+            if (!$isMember) error('Réservé aux membres de la tontine.', 403);
+
+            $t = DB::row("SELECT name FROM tontines WHERE id = ?", [$tid]);
+            if (!$t) error('Tontine introuvable.');
+
+            $conv = DB::row("SELECT id FROM conversations WHERE tontine_id = ? AND is_group = 1", [$tid]);
+            if ($conv) {
+                $convId = (int)$conv['id'];
+                /* Le nom de la tontine peut avoir changé depuis la création du chat */
+                DB::q("UPDATE conversations SET title = ? WHERE id = ?", [$t['name'], $convId]);
+            } else {
+                $convId = DB::insert(
+                    "INSERT INTO conversations (is_group, title, created_by, tontine_id) VALUES (1, ?, ?, ?)",
+                    [$t['name'], $user['id'], $tid]
+                );
+            }
+
+            /* S'assure que tous les membres actifs actuels ont une ligne de
+               suivi de lecture, pour que le chat leur apparaisse bien dans
+               leur liste de conversations même sans l'avoir encore ouvert. */
+            $activeMembers = DB::rows("SELECT user_id FROM memberships WHERE tontine_id = ? AND status = 'active'", [$tid]);
+            foreach ($activeMembers as $am) {
+                DB::q(
+                    "INSERT IGNORE INTO conversation_participants (conversation_id, user_id) VALUES (?, ?)",
+                    [$convId, (int)$am['user_id']]
+                );
+            }
+
+            success(['conversationId' => $convId, 'title' => $t['name']]);
         }
 
         case 'sendMessage': {
@@ -1876,14 +1995,18 @@ try {
                 $maxSize = $attType === 'file' ? 3_500_000 : 1_500_000;
                 if (strlen($attData) > $maxSize) error('Fichier trop volumineux.');
             }
-            $isParticipant = DB::row("SELECT id FROM conversation_participants WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
+            $isParticipant = conversationAccessGranted($convId, $user['id']);
             if (!$isParticipant) error('Accès refusé.', 403);
 
             $msgId = DB::insert(
                 "INSERT INTO messages (conversation_id, sender_id, body, attachment_type, attachment_data, attachment_name) VALUES (?, ?, ?, ?, ?, ?)",
                 [$convId, $user['id'], $body ?: null, $attType, $attData, $attName ?: null]
             );
-            DB::q("UPDATE conversation_participants SET last_read_at = NOW() WHERE conversation_id = ? AND user_id = ?", [$convId, $user['id']]);
+            DB::q(
+                "INSERT INTO conversation_participants (conversation_id, user_id, last_read_at) VALUES (?, ?, NOW())
+                 ON DUPLICATE KEY UPDATE last_read_at = NOW()",
+                [$convId, $user['id']]
+            );
             success(['id' => (int)$msgId], 'Message envoyé.');
         }
 
