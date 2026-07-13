@@ -124,8 +124,12 @@ const API = {
       });
       return await res.json();
     } catch {
-      /* Fallback to demo data when PHP not available */
-      return this.demoFallback(action, data);
+      /* Vraie coupure réseau (pas une réponse du serveur) — on le distingue
+         d'un refus légitime du serveur pour permettre une remise en file
+         d'attente automatique (voir Chat.send / Chat.flushOfflineQueue). */
+      const fallback = this.demoFallback(action, data);
+      fallback.networkError = true;
+      return fallback;
     } finally {
       this._hideLoadingBar();
     }
@@ -220,7 +224,10 @@ const Nav = {
          encore affichée), on relance le polling s'il n'est pas déjà actif */
       if (page === 'chat-thread' && typeof Chat !== 'undefined' && Chat.currentConversationId && !Chat.pollTimer) {
         Chat.fetchMessages(false);
-        Chat.pollTimer = setInterval(() => Chat.fetchMessages(false), 3000);
+        Chat.pollTimer = setInterval(() => {
+          Chat.fetchMessages(false);
+          if (Chat._offlineQueue.length) Chat.flushOfflineQueue();
+        }, 3000);
       }
     } else {
       topbar.style.display = 'flex';
@@ -525,7 +532,7 @@ const TontineDetail = {
       div.innerHTML = `
         <div class="avatar-sm">${m.initials || m.name.slice(0,2).toUpperCase()}</div>
         <div class="member-info">
-          <p class="member-name">${m.name}</p>
+          <p class="member-name">${UI.escapeHtml(m.name)}</p>
           <p class="member-role">Demande du ${m.requested_at}</p>
         </div>
         <div class="contact-item-actions">
@@ -595,7 +602,7 @@ const TontineDetail = {
     /* Admin actions */
     const adminActions = document.getElementById('detail-admin-actions');
     const chatBtn = `
-      <button class="btn-icon" title="Chat du groupe" onclick="Chat.openTontineChat(${t.id}, '${(t.name || '').replace(/'/g, "\\'")}')">
+      <button class="btn-icon" title="Chat du groupe" onclick="Chat.openTontineChat(${t.id})">
         <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
       </button>`;
     adminActions.innerHTML = chatBtn + (t.userRole === 'admin' ? `
@@ -617,11 +624,16 @@ const TontineDetail = {
     const membersList = document.getElementById('detail-members-list');
     membersList.innerHTML = '';
     this._proofByMemberId = {};
+    const membersSearchBar = document.getElementById('members-search-bar');
+    if (membersSearchBar) membersSearchBar.style.display = (t.members || []).length > 6 ? 'flex' : 'none';
+    const membersSearchInput = document.getElementById('search-members');
+    if (membersSearchInput) membersSearchInput.value = '';
     (t.members || []).forEach(m => {
       if (m.paymentProof) this._proofByMemberId[m.id] = { image: m.paymentProof, name: m.name };
       const div = document.createElement('div');
       div.className = 'member-item';
       div.id = `member-row-${m.id}`;
+      div.dataset.searchName = (m.name || '').toLowerCase();
       const photo = m.avatar_photo || m.avatarPhoto;
       const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
       const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
@@ -648,10 +660,10 @@ const TontineDetail = {
             : '';
           paymentAdminBtns = `
             ${proofBtn}
-            <button class="btn-icon" title="Confirmer la réception" style="color:var(--color-primary)" onclick="TontineDetail.recordPayment(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>
-            <button class="btn-icon" title="Refuser (introuvable)" style="color:var(--color-red)" onclick="TontineDetail.rejectPayment(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>`;
+            <button class="btn-icon" title="Confirmer la réception" style="color:var(--color-primary)" onclick="TontineDetail.recordPayment(${m.id})"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>
+            <button class="btn-icon" title="Refuser (introuvable)" style="color:var(--color-red)" onclick="TontineDetail.rejectPayment(${m.id})"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>`;
         } else {
-          paymentAdminBtns = `<button class="btn-icon" title="Confirmer le paiement" style="color:var(--color-primary)" onclick="TontineDetail.recordPayment(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>`;
+          paymentAdminBtns = `<button class="btn-icon" title="Confirmer le paiement" style="color:var(--color-primary)" onclick="TontineDetail.recordPayment(${m.id})"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>`;
         }
       }
 
@@ -659,15 +671,15 @@ const TontineDetail = {
       let manageBtns = '';
       if (isAdminViewer && !isSelf) {
         manageBtns = m.role === 'admin'
-          ? `<button class="btn-icon" title="Retirer les droits admin" onclick="TontineDetail.updateMemberRole(${m.id},'member','${m.name}')"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>`
-          : `<button class="btn-icon" title="Nommer administrateur" onclick="TontineDetail.updateMemberRole(${m.id},'admin','${m.name}')"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 6.9H22l-6 4.6 2.4 7-6.4-4.6L5.6 20.5l2.4-7-6-4.6h7.6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg></button>`;
-        manageBtns += `<button class="btn-icon" title="Retirer de la tontine" style="color:var(--color-red)" onclick="TontineDetail.removeMember(${m.id},'${m.name}')"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg></button>`;
+          ? `<button class="btn-icon" title="Retirer les droits admin" onclick="TontineDetail.updateMemberRole(${m.id},'member')"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>`
+          : `<button class="btn-icon" title="Nommer administrateur" onclick="TontineDetail.updateMemberRole(${m.id},'admin')"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 6.9H22l-6 4.6 2.4 7-6.4-4.6L5.6 20.5l2.4-7-6-4.6h7.6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg></button>`;
+        manageBtns += `<button class="btn-icon" title="Retirer de la tontine" style="color:var(--color-red)" onclick="TontineDetail.removeMember(${m.id})"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg></button>`;
       }
 
       div.innerHTML = `
         <div class="${avatarClass}"${avatarStyle}>${photo ? '' : (m.initials || m.name.slice(0,2).toUpperCase())}</div>
         <div class="member-info">
-          <p class="member-name">${m.name}${m.role === 'admin' ? ' <span class="admin-tag">Admin</span>' : ''}</p>
+          <p class="member-name">${UI.escapeHtml(m.name)}${m.role === 'admin' ? ' <span class="admin-tag">Admin</span>' : ''}</p>
           <p class="member-role">Tour #${m.tour_order ?? m.order ?? '—'}</p>
         </div>
         ${statusHtml}
@@ -727,7 +739,7 @@ const TontineDetail = {
     for (let i = 1; i <= tours; i++) html += `<th>T${i}</th>`;
     html += '</tr></thead><tbody>';
     t.members.forEach(m => {
-      html += `<tr><td class="pm-name" title="${m.name}">${m.name.split(' ')[0]}</td>`;
+      html += `<tr><td class="pm-name" title="${UI.escapeHtml(m.name)}">${UI.escapeHtml(m.name.split(' ')[0])}</td>`;
       for (let i = 1; i <= tours; i++) {
         const paid = i < t.currentTour ? '✅' : (i === t.currentTour && m.paid ? '✅' : (i === t.currentTour ? '⏳' : '—'));
         html += `<td class="pm-cell">${paid}</td>`;
@@ -750,14 +762,15 @@ const TontineDetail = {
     });
   },
 
-  async recordPayment(memberId, memberName) {
+  async recordPayment(memberId) {
+    const member = App.currentTontine.members.find(m => m.id === memberId);
+    const memberName = member?.name || 'ce membre';
     const confirmed = await Modal.confirm(`Confirmer le paiement de ${memberName} ?`, `Cette action sera enregistrée dans le journal de la tontine et visible par tous les membres.`, 'Confirmer le paiement');
     if (!confirmed) return;
     const res = await API.request('recordPayment', { tontineId: App.currentTontine.id, memberId });
     if (res.success) {
       Toast.show(`Paiement de ${memberName} enregistré`, 'success');
       /* Update local state */
-      const member = App.currentTontine.members.find(m => m.id === memberId);
       if (member) member.paid = true;
       this.render(App.currentTontine);
       this._flashMemberRow(memberId);
@@ -859,8 +872,9 @@ const TontineDetail = {
       const res = await API.request('declarePayment', { tontineId: t.id, proofImage: proofImageData });
       Modal.close();
       if (res.success) {
-        Toast.show(res.message || 'Déclaration envoyée !', 'success');
-        this.refresh(t.id);
+        Toast.show(res.message || 'Déclaration envoyée ! En attente de validation par l\'administrateur.', 'success');
+        await this.refresh(t.id);
+        if (App.currentUser?.id) this._flashMemberRow(App.currentUser.id);
       } else {
         Toast.show(res.message || 'Erreur', 'error');
       }
@@ -877,7 +891,9 @@ const TontineDetail = {
     `);
   },
 
-  async rejectPayment(memberId, memberName) {
+  async rejectPayment(memberId) {
+    const member = App.currentTontine.members.find(m => m.id === memberId);
+    const memberName = member?.name || 'ce membre';
     const confirmed = await Modal.confirm(
       `Refuser la déclaration de ${memberName} ?`,
       "À utiliser si vous n'avez pas retrouvé ce paiement sur votre compte Mobile Money. Le membre pourra redéclarer.",
@@ -894,7 +910,9 @@ const TontineDetail = {
     }
   },
 
-  async updateMemberRole(memberId, role, memberName) {
+  async updateMemberRole(memberId, role) {
+    const member = App.currentTontine.members.find(m => m.id === memberId);
+    const memberName = member?.name || 'ce membre';
     const label = role === 'admin' ? 'nommer administrateur' : 'retirer les droits admin de';
     const confirmed = await Modal.confirm(`Confirmer : ${label} ${memberName} ?`, '', 'Confirmer');
     if (!confirmed) return;
@@ -907,7 +925,9 @@ const TontineDetail = {
     }
   },
 
-  async removeMember(memberId, memberName) {
+  async removeMember(memberId) {
+    const member = App.currentTontine.members.find(m => m.id === memberId);
+    const memberName = member?.name || 'ce membre';
     const confirmed = await Modal.confirm(
       `Retirer ${memberName} de la tontine ?`,
       'Cette personne perdra immédiatement l\'accès à cette tontine. Cette action est irréversible.',
@@ -946,7 +966,7 @@ const TontineDetail = {
       </div>
       <div class="form-group">
         <label class="form-label">Description</label>
-        <textarea class="form-input" id="edit-tontine-desc" rows="2" maxlength="200">${t.description || ''}</textarea>
+        <textarea class="form-input" id="edit-tontine-desc" rows="2" maxlength="200">${UI.escapeHtml(t.description || '')}</textarea>
         <button class="btn-secondary btn-full mt" id="btn-save-tontine-info">Enregistrer les modifications</button>
       </div>
       <div class="form-group">
@@ -990,6 +1010,8 @@ const TontineDetail = {
           Pour confirmer, tapez exactement : <strong>supprimer la tontine ${UI.escapeHtml(t.name || '')}</strong>
         </p>
         <input type="text" class="form-input" id="delete-confirm-input" placeholder="supprimer la tontine ${(t.name || '').replace(/"/g, '&quot;')}" style="margin-bottom:8px" autocomplete="off" />
+        <label class="form-label" style="font-size:var(--fs-xs);margin-top:2px">Votre mot de passe (sécurité supplémentaire)</label>
+        <input type="password" class="form-input" id="delete-confirm-password" placeholder="Mot de passe du compte" style="margin-bottom:8px" autocomplete="current-password" />
         <button class="btn-danger btn-full" id="btn-delete-tontine" disabled style="opacity:0.5">🗑️ Supprimer définitivement la tontine</button>
       </div>
     `);
@@ -1098,27 +1120,35 @@ const TontineDetail = {
     });
 
     /* Suppression définitive : le bouton ne s'active que si le texte tapé
-       correspond EXACTEMENT (nom de la tontine inclus), pour éviter tout
-       clic accidentel sur une action aussi destructrice. */
+       correspond EXACTEMENT (nom de la tontine inclus) ET qu'un mot de passe
+       a été saisi, pour éviter tout clic accidentel sur une action aussi
+       destructrice. Le mot de passe est aussi revérifié côté serveur. */
     const expectedDeleteText = `supprimer la tontine ${t.name || ''}`.trim().toLowerCase();
     const deleteInput = document.getElementById('delete-confirm-input');
+    const deletePasswordInput = document.getElementById('delete-confirm-password');
     const deleteBtn = document.getElementById('btn-delete-tontine');
-    deleteInput?.addEventListener('input', () => {
-      const matches = deleteInput.value.trim().toLowerCase() === expectedDeleteText;
+    const syncDeleteBtnState = () => {
+      const matches = deleteInput.value.trim().toLowerCase() === expectedDeleteText && deletePasswordInput.value.length > 0;
       deleteBtn.disabled = !matches;
       deleteBtn.style.opacity = matches ? '1' : '0.5';
-    });
+    };
+    deleteInput?.addEventListener('input', syncDeleteBtnState);
+    deletePasswordInput?.addEventListener('input', syncDeleteBtnState);
     deleteBtn?.addEventListener('click', async () => {
       if (deleteBtn.disabled) return;
       const doubleCheck = await Modal.confirm(
         'Dernière confirmation',
-        `Cette action supprimera définitivement "${t.name}", tous ses membres, paiements, son journal et son chat de groupe. C'est irréversible.`,
+        `Cette action supprimera définitivement "${UI.escapeHtml(t.name)}", tous ses membres, paiements, son journal et son chat de groupe. C'est irréversible.`,
         'Oui, supprimer définitivement'
       );
       if (!doubleCheck) return;
       deleteBtn.disabled = true;
       deleteBtn.textContent = 'Suppression...';
-      const res = await API.request('deleteTontine', { tontineId: t.id, confirmText: deleteInput.value.trim() });
+      const res = await API.request('deleteTontine', {
+        tontineId: t.id,
+        confirmText: deleteInput.value.trim(),
+        password: deletePasswordInput.value
+      });
       if (res.success) {
         Toast.show('Tontine supprimée.', 'success');
         Modal.close();
@@ -1419,6 +1449,7 @@ const Settings = {
 
 /* ═══════════════════════════════ TRANSACTIONS ═══════════════════════════════ */
 const Transactions = {
+  data: [],
   async load() {
     const list = document.getElementById('transactions-list');
     if (list) list.innerHTML = UI.skeletonRows(4);
@@ -1473,15 +1504,18 @@ const Transactions = {
 
 /* ═══════════════════════════════ AUDIT LOG ═══════════════════════════════ */
 const AuditLog = {
+  data: [],
   async load() {
     const list = document.getElementById('audit-log-list');
     if (list) list.innerHTML = UI.skeletonRows(5);
     const res = await API.request('getGlobalLog');
     if (!res.success || !res.data.length) {
       list.innerHTML = '<div class="empty-state"><p>Aucune entrée dans le journal</p></div>';
+      this.data = [];
       return;
     }
     list.innerHTML = '';
+    this.data = res.data;
     res.data.forEach(entry => {
       const div = document.createElement('div');
       div.className = `log-item ${entry.type}`;
@@ -1788,6 +1822,7 @@ const Chat = {
   _fetchInFlight: false,
   _sending: false,
   _conversations: [],
+  _offlineQueue: [],
 
   init() {
     const input = document.getElementById('chat-message-input');
@@ -1909,10 +1944,22 @@ const Chat = {
         attachmentData: dataUrl,
         attachmentName: name
       });
-      if (res.success) await this.fetchMessages(false);
-      else Toast.show(res.message || 'Envoi impossible', 'error');
+      if (res.success) {
+        await this.fetchMessages(false);
+      } else if (res.networkError) {
+        pendingEl.classList.add('offline');
+        pendingEl.querySelector('.chat-ticks')?.classList.add('ticks-offline');
+        this._offlineQueue.push({
+          type: 'attachment', conversationId: this.currentConversationId,
+          attachmentType: type, attachmentData: dataUrl, attachmentName: name, pendingEl
+        });
+        Toast.show('Pas de connexion — sera envoyé automatiquement.', 'warning');
+        return;
+      } else {
+        Toast.show(res.message || 'Envoi impossible', 'error');
+      }
     } finally {
-      pendingEl.remove();
+      if (!pendingEl.classList.contains('offline')) pendingEl.remove();
     }
   },
 
@@ -2000,10 +2047,11 @@ const Chat = {
   },
 
   /* Ouvre (ou crée) le chat de groupe d'une tontine — réservé aux membres actifs */
-  async openTontineChat(tontineId, tontineName) {
+  async openTontineChat(tontineId) {
     const res = await API.request('getOrCreateTontineChat', { tontineId });
     if (!res.success) { Toast.show(res.message || 'Chat indisponible', 'error'); return; }
-    await this.openThread(res.data.conversationId, res.data.title || tontineName, null, null, true);
+    const fallbackName = App.currentTontine?.id === tontineId ? App.currentTontine.name : 'Chat de groupe';
+    await this.openThread(res.data.conversationId, res.data.title || fallbackName, null, null, true);
   },
 
   async openThread(conversationId, title, avatar, avatarPhoto, isGroup = false) {
@@ -2042,7 +2090,10 @@ const Chat = {
 
     document.getElementById('chat-messages-list').innerHTML = '<div class="empty-state small"><p>Chargement…</p></div>';
     await this.fetchMessages(true);
-    this.pollTimer = setInterval(() => this.fetchMessages(false), 3000);
+    this.pollTimer = setInterval(() => {
+      this.fetchMessages(false);
+      if (this._offlineQueue.length) this.flushOfflineQueue();
+    }, 3000);
   },
 
   stopPolling() {
@@ -2179,6 +2230,32 @@ const Chat = {
     });
   },
 
+  /* Retente l'envoi de tout message resté en attente faute de réseau —
+     appelé au retour de connexion (voir l'écouteur 'online' plus bas). */
+  async flushOfflineQueue() {
+    if (!this._offlineQueue.length) return;
+    const queue = this._offlineQueue.splice(0, this._offlineQueue.length);
+    for (const item of queue) {
+      try {
+        const res = item.type === 'text'
+          ? await API.request('sendMessage', { conversationId: item.conversationId, body: item.body })
+          : await API.request('sendMessage', {
+              conversationId: item.conversationId, body: '',
+              attachmentType: item.attachmentType, attachmentData: item.attachmentData, attachmentName: item.attachmentName
+            });
+        item.pendingEl?.remove();
+        if (res.success && item.conversationId === this.currentConversationId) {
+          await this.fetchMessages(false);
+        } else if (!res.success) {
+          Toast.show("Un message n'a pas pu être envoyé, à retenter manuellement.", 'error');
+        }
+      } catch {
+        /* Toujours pas de réseau : on remet en file pour la prochaine tentative */
+        this._offlineQueue.push(item);
+      }
+    }
+  },
+
   async send() {
     if (this._sending) return;
     const input = document.getElementById('chat-message-input');
@@ -2204,13 +2281,21 @@ const Chat = {
       const res = await API.request('sendMessage', { conversationId: this.currentConversationId, body });
       if (res.success) {
         await this.fetchMessages(false);
+      } else if (res.networkError) {
+        /* Pas de réseau : on garde la bulle "en attente" et on met le
+           message en file pour un envoi automatique à la reconnexion. */
+        pendingEl.classList.add('offline');
+        pendingEl.querySelector('.chat-ticks')?.classList.add('ticks-offline');
+        this._offlineQueue.push({ type: 'text', conversationId: this.currentConversationId, body, pendingEl });
+        Toast.show('Pas de connexion — le message sera envoyé automatiquement.', 'warning');
+        return; /* on NE retire PAS la bulle ici (voir finally plus bas) */
       } else {
         Toast.show(res.message || 'Message non envoyé', 'error');
         input.value = body;
         input.dispatchEvent(new Event('input'));
       }
     } finally {
-      pendingEl.remove();
+      if (!pendingEl.classList.contains('offline')) pendingEl.remove();
       this._sending = false;
     }
   }
@@ -2316,7 +2401,7 @@ const UI = {
       : '';
     div.innerHTML = `
       <div class="tontine-card-header">
-        <span class="tontine-card-name">${iconHtml}${t.name}</span>
+        <span class="tontine-card-name">${iconHtml}${UI.escapeHtml(t.name)}</span>
         <span class="badge ${t.badge}">${t.badgeText}</span>
       </div>
       <div class="tontine-card-body">
@@ -2388,6 +2473,31 @@ const UI = {
       el.remove();
       Toast.show('Copié !', 'success');
     });
+  },
+
+  /* Exporte une liste d'objets en fichier CSV (s'ouvre nativement dans Excel).
+     headers: [{key: 'name', label: 'Nom'}, ...] */
+  exportCSV(filename, rows, headers) {
+    if (!rows || !rows.length) { Toast.show('Rien à exporter.', 'warning'); return; }
+    const escapeCell = (val) => {
+      const s = String(val ?? '');
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [headers.map(h => escapeCell(h.label)).join(';')];
+    rows.forEach(row => {
+      lines.push(headers.map(h => escapeCell(row[h.key])).join(';'));
+    });
+    /* BOM UTF-8 pour qu'Excel affiche correctement les accents français */
+    const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    Toast.show('Export téléchargé !', 'success');
   },
 
   updateUserInfo() {
@@ -2572,6 +2682,35 @@ function setupEventListeners() {
   /* Back button */
   document.getElementById('btn-back').addEventListener('click', () => Nav.back());
 
+  /* Recherche parmi les membres d'une tontine (visible seulement si >6 membres) */
+  document.getElementById('search-members')?.addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#detail-members-list .member-item').forEach(row => {
+      row.style.display = !q || (row.dataset.searchName || '').includes(q) ? '' : 'none';
+    });
+  });
+
+  /* Export CSV/Excel — câblé une seule fois ; lit les données à jour au clic */
+  document.getElementById('btn-export-transactions')?.addEventListener('click', () => {
+    UI.exportCSV('transactions.csv', Transactions.data || [], [
+      { key: 'name', label: 'Nom' },
+      { key: 'tontine', label: 'Tontine' },
+      { key: 'type', label: 'Type' },
+      { key: 'status', label: 'Statut' },
+      { key: 'amount', label: 'Montant (FCFA)' },
+      { key: 'date', label: 'Date' }
+    ]);
+  });
+  document.getElementById('btn-export-audit-log')?.addEventListener('click', () => {
+    UI.exportCSV('journal.csv', AuditLog.data || [], [
+      { key: 'time', label: 'Date' },
+      { key: 'user', label: 'Utilisateur' },
+      { key: 'action', label: 'Action' },
+      { key: 'detail', label: 'Détail' },
+      { key: 'type', label: 'Type' }
+    ]);
+  });
+
   /* Menu toggle */
   document.getElementById('btn-menu').addEventListener('click', () => {
     const menu = document.getElementById('dropdown-menu');
@@ -2643,6 +2782,9 @@ function setupEventListeners() {
     }
     Nav.back(true);
   });
+
+  /* Renvoi automatique des messages restés en attente faute de réseau */
+  window.addEventListener('online', () => Chat.flushOfflineQueue());
 }
 
 /* ═══════════════════════════════ INIT ═══════════════════════════════ */

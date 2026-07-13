@@ -2191,6 +2191,7 @@ ul { list-style: none; }
   margin-bottom: 2px;
 }
 .chat-bubble.pending { opacity: 0.75; }
+.chat-bubble.pending.offline { opacity: 0.85; outline: 1px dashed rgba(255,255,255,0.4); outline-offset: 2px; }
 .chat-bubble-time {
   display: flex;
   align-items: center;
@@ -2205,6 +2206,7 @@ ul { list-style: none; }
 .chat-ticks { display: inline-flex; align-items: center; line-height: 0; color: rgba(255,255,255,0.75); }
 .chat-ticks svg { display: block; }
 .chat-ticks.ticks-pending { color: rgba(255,255,255,0.65); animation: none; }
+.chat-ticks.ticks-offline { color: #ffb020; }
 .chat-ticks.ticks-read { color: #34d1ff; }
 
 /* ── Overlay de chargement sur une pièce jointe en cours d'envoi ── */

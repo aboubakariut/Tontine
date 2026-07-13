@@ -341,6 +341,10 @@
             <h3 class="card-title">Demandes en attente</h3>
             <div id="detail-pending-requests-list"></div>
           </div>
+          <div class="search-bar" id="members-search-bar" style="display:none;margin-bottom:var(--sp-sm)">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2" fill="none"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <input type="text" placeholder="Rechercher un membre..." id="search-members" />
+          </div>
           <div class="members-list" id="detail-members-list"></div>
           <button class="btn-ghost btn-full mt" id="btn-invite-member">
             <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -707,6 +711,10 @@
           <button class="chip" data-filter="pending">En attente</button>
           <button class="chip" data-filter="received">Reçues</button>
         </div>
+        <button class="btn-ghost btn-full" id="btn-export-transactions">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          Exporter en Excel/CSV
+        </button>
         <div class="transactions-list" id="transactions-list">
           <div class="empty-state"><p>Aucune transaction</p></div>
         </div>
@@ -720,6 +728,10 @@
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="16" x2="12.01" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <p>Toutes les actions sont enregistrées et immuables. Aucune modification n'est possible après enregistrement.</p>
         </div>
+        <button class="btn-ghost btn-full" id="btn-export-audit-log">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          Exporter en Excel/CSV
+        </button>
         <div class="log-list full" id="audit-log-list">
           <div class="empty-state"><p>Aucune entrée dans le journal</p></div>
         </div>
