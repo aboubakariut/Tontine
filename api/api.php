@@ -1734,6 +1734,13 @@ try {
             if ($t['status'] === 'closed') error('Cette tontine est déjà fermée.');
             DB::q("UPDATE tontines SET status = 'closed' WHERE id = ?", [$tid]);
             audit('admin', 'Tontine fermée', "Tontine #{$tid} — {$t['name']}", $user['id'], $tid);
+
+            /* Notifier tous les membres, comme annoncé dans l'interface */
+            $members = DB::rows("SELECT user_id FROM memberships WHERE tontine_id = ? AND status = 'active' AND user_id != ?", [$tid, $user['id']]);
+            foreach ($members as $m) {
+                notify((int)$m['user_id'], 'tontine_closed', 'Tontine fermée', "\"{$t['name']}\" a été fermée par un administrateur.", $tid);
+            }
+
             success(null, 'Tontine fermée avec succès.');
         }
 
@@ -1759,7 +1766,22 @@ try {
                 error('Le texte de confirmation ne correspond pas exactement.');
             }
 
+            /* Sécurité supplémentaire : le mot de passe du compte est exigé
+               pour une action aussi destructrice, au cas où le téléphone
+               serait déverrouillé et laissé sans surveillance. */
+            $fullUser = DB::row("SELECT password FROM users WHERE id = ?", [$user['id']]);
+            if (!$fullUser || !password_verify($input['password'] ?? '', $fullUser['password'])) {
+                error('Mot de passe incorrect.');
+            }
+
             audit('admin', 'Tontine supprimée définitivement', "Tontine #{$tid} — {$t['name']}", $user['id'], $tid);
+
+            /* Notifier tous les membres AVANT suppression — après coup,
+               la tontine n'existe plus pour construire un message utile. */
+            $members = DB::rows("SELECT user_id FROM memberships WHERE tontine_id = ? AND status = 'active' AND user_id != ?", [$tid, $user['id']]);
+            foreach ($members as $m) {
+                notify((int)$m['user_id'], 'tontine_deleted', 'Tontine supprimée', "\"{$t['name']}\" a été supprimée définitivement par un administrateur.", null);
+            }
 
             /* Le chat de groupe n'a pas de contrainte de suppression en
                cascade (colonne ajoutée après coup) : on le retire à la main
