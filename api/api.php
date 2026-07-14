@@ -235,6 +235,13 @@ class DB {
            Choisie par l'administrateur, affichée sur la carte et l'en-tête. */
         self::addColumnIfMissing('tontines', 'icon', 'LONGTEXT NULL');
 
+        /* ── Suivi des dettes ──
+           Cumule ce qu'un membre doit encore quand un tour est passé sans
+           qu'il ait payé sa cotisation. Remis à 0 manuellement par l'admin
+           (réglé en main propre) ou automatiquement lors d'une prochaine
+           confirmation de paiement si l'admin coche "régler aussi la dette". */
+        self::addColumnIfMissing('memberships', 'debt', 'DECIMAL(12,2) NOT NULL DEFAULT 0');
+
         /* ── Notifications : lien vers l'élément précis concerné (ex: l'ID
            de la demande d'adhésion) pour pouvoir y accéder directement au
            clic, sans que l'utilisateur ait à la rechercher dans une liste. */
@@ -641,7 +648,7 @@ function formatTontineResponse(array $t, int $userId): array {
 
     /* Members */
     $members = DB::rows(
-        "SELECT u.id, u.firstname, u.lastname, u.avatar, u.avatar_photo, m.role, m.tour_order,
+        "SELECT u.id, u.firstname, u.lastname, u.avatar, u.avatar_photo, m.role, m.tour_order, m.debt,
                 CONCAT(UPPER(LEFT(u.firstname,1)), UPPER(LEFT(u.lastname,1))) as initials
          FROM memberships m JOIN users u ON u.id = m.user_id
          WHERE m.tontine_id = ? AND m.status = 'active'
@@ -1156,7 +1163,19 @@ try {
             } else {
                 $payId = finalizeCotisationPayment($t, $targetMember, $mid, $admin['id'], 'manual');
             }
-            success(['paymentId' => $payId], 'Paiement confirmé avec succès !');
+
+            /* Réglé en même temps si l'admin l'a coché (ex: le membre a aussi
+               remis en main propre ce qu'il devait des tours précédents) */
+            $clearedDebt = 0;
+            if (!empty($input['clearDebt'])) {
+                $membership = DB::row("SELECT * FROM memberships WHERE tontine_id=? AND user_id=?", [$tid, $mid]);
+                if ($membership && (float)$membership['debt'] > 0) {
+                    $clearedDebt = (float)$membership['debt'];
+                    DB::q("UPDATE memberships SET debt = 0 WHERE id = ?", [$membership['id']]);
+                    audit('admin', 'Dette réglée', number_format($clearedDebt, 0, ',', ' ') . " FCFA réglés pour $name", $admin['id'], $tid);
+                }
+            }
+            success(['paymentId' => $payId, 'clearedDebt' => $clearedDebt], 'Paiement confirmé avec succès !');
         }
 
         case 'declarePayment': {
@@ -1267,10 +1286,51 @@ try {
         case 'nextTour': {
             $tid  = (int)($input['tontineId'] ?? 0);
             $user = Auth::requireAdmin($input, $tid);
+            $force = !empty($input['force']);
 
             $t = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
             if (!$t) error('Tontine introuvable.');
             if ($t['current_tour'] >= $t['total_tours']) error('Tous les tours sont terminés.');
+
+            /* Membres actifs n'ayant pas de paiement "payé" enregistré pour
+               le tour en cours — on prévient l'admin avant de continuer,
+               plutôt que de faire disparaître discrètement le manquement. */
+            $unpaid = DB::rows(
+                "SELECT m.id as membership_id, u.id as user_id, CONCAT(u.firstname,' ',u.lastname) as name
+                 FROM memberships m JOIN users u ON u.id = m.user_id
+                 WHERE m.tontine_id = ? AND m.status = 'active'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM payments p
+                     WHERE p.tontine_id = m.tontine_id AND p.user_id = m.user_id
+                     AND p.tour = ? AND p.status = 'paid'
+                 )",
+                [$tid, $t['current_tour']]
+            );
+
+            if ($unpaid && !$force) {
+                success([
+                    'needsConfirmation' => true,
+                    'unpaidMembers' => array_map(fn($u) => ['name' => $u['name'], 'userId' => (int)$u['user_id']], $unpaid),
+                    'amount' => (float)$t['amount']
+                ], count($unpaid) . ' membre(s) n\'ont pas encore payé ce tour.');
+            }
+
+            /* On force le passage au tour suivant : chaque membre resté
+               impayé se voit inscrire une dette égale à la cotisation due. */
+            foreach ($unpaid as $u) {
+                DB::q("UPDATE memberships SET debt = debt + ? WHERE id = ?", [(float)$t['amount'], $u['membership_id']]);
+                notify(
+                    (int)$u['user_id'], 'debt',
+                    'Cotisation manquante enregistrée',
+                    "Vous n'avez pas payé le tour {$t['current_tour']} de \"{$t['name']}\" — " . number_format((float)$t['amount'], 0, ',', ' ') . " FCFA ajoutés à votre dette.",
+                    $tid
+                );
+            }
+            if ($unpaid) {
+                audit('admin', 'Dettes enregistrées',
+                    count($unpaid) . " membre(s) n'ayant pas payé le tour {$t['current_tour']}",
+                    $user['id'], $tid);
+            }
 
             /* Find beneficiary */
             $bene = DB::row(
@@ -1303,6 +1363,31 @@ try {
 
             audit('admin', 'Nouveau tour lancé', "Tour $newTour démarré", $user['id'], $tid);
             success(['newTour' => $newTour, 'status' => $newStatus], "Tour $newTour lancé !");
+        }
+
+        /* ────────────────────────────────────
+           DETTES: règlement manuel (admin)
+           ──────────────────────────────────── */
+        case 'settleDebt': {
+            $tid = (int)($input['tontineId'] ?? 0);
+            $user = Auth::requireAdmin($input, $tid);
+            $memberId = (int)($input['memberId'] ?? 0);
+            $membership = DB::row("SELECT * FROM memberships WHERE tontine_id = ? AND user_id = ?", [$tid, $memberId]);
+            if (!$membership) error('Membre introuvable.');
+            if ((float)$membership['debt'] <= 0) error('Ce membre n\'a aucune dette.');
+
+            $amount = isset($input['amount']) ? (float)$input['amount'] : (float)$membership['debt'];
+            $amount = max(0, min($amount, (float)$membership['debt']));
+
+            DB::q("UPDATE memberships SET debt = debt - ? WHERE id = ?", [$amount, $membership['id']]);
+            $memberInfo = DB::row("SELECT firstname, lastname FROM users WHERE id = ?", [$memberId]);
+            audit('admin', 'Dette réglée',
+                number_format($amount, 0, ',', ' ') . " FCFA réglés pour {$memberInfo['firstname']} {$memberInfo['lastname']}",
+                $user['id'], $tid);
+            notify($memberId, 'debt_settled', 'Dette réglée',
+                number_format($amount, 0, ',', ' ') . ' FCFA de votre dette ont été marqués comme réglés.', $tid);
+
+            success(['remainingDebt' => (float)$membership['debt'] - $amount], 'Dette mise à jour.');
         }
 
         /* ────────────────────────────────────
