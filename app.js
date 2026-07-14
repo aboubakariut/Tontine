@@ -620,6 +620,28 @@ const TontineDetail = {
     const bcA = document.getElementById('bc-avatar');
     bcA.textContent = (t.nextBeneficiary || '').split(' ').map(w => w[0]).join('').slice(0,2);
 
+    const nextTourBtn = document.getElementById('btn-next-tour');
+    if (nextTourBtn) nextTourBtn.style.display = (t.userRole === 'admin' && t.status !== 'closed') ? 'block' : 'none';
+
+    /* Dettes en cours */
+    const debtsCard = document.getElementById('detail-debts-card');
+    const debtsList = document.getElementById('detail-debts-list');
+    const membersWithDebt = (t.members || []).filter(m => Number(m.debt) > 0);
+    if (debtsCard && debtsList) {
+      if (!membersWithDebt.length) {
+        debtsCard.style.display = 'none';
+      } else {
+        debtsCard.style.display = 'block';
+        debtsList.innerHTML = membersWithDebt.map(m => `
+          <div class="debt-row">
+            <span>${UI.escapeHtml(m.name)}</span>
+            <span class="debt-amount">${UI.formatAmount(m.debt)}</span>
+            ${t.userRole === 'admin' ? `<button class="btn-ghost btn-sm" onclick="TontineDetail.settleDebt(${m.id})">Marquer réglée</button>` : ''}
+          </div>
+        `).join('');
+      }
+    }
+
     /* Members tab */
     const membersList = document.getElementById('detail-members-list');
     membersList.innerHTML = '';
@@ -645,6 +667,7 @@ const TontineDetail = {
       if (m.paid) statusHtml = `<span class="member-status member-paid">✓ Payé</span>`;
       else if (m.paymentPending) statusHtml = `<span class="member-status member-review">🕒 À valider</span>`;
       else statusHtml = `<span class="member-status member-pending">⏳ En attente</span>`;
+      if (Number(m.debt) > 0) statusHtml += `<span class="member-status member-debt">⚠️ Doit ${UI.formatAmount(m.debt)}</span>`;
 
       /* Bouton de paiement (le membre lui-même, uniquement si rien n'est en cours) */
       const payBtn = (isSelf && !m.paid && !m.paymentPending)
@@ -765,16 +788,92 @@ const TontineDetail = {
   async recordPayment(memberId) {
     const member = App.currentTontine.members.find(m => m.id === memberId);
     const memberName = member?.name || 'ce membre';
-    const confirmed = await Modal.confirm(`Confirmer le paiement de ${memberName} ?`, `Cette action sera enregistrée dans le journal de la tontine et visible par tous les membres.`, 'Confirmer le paiement');
-    if (!confirmed) return;
-    const res = await API.request('recordPayment', { tontineId: App.currentTontine.id, memberId });
+    const debt = Number(member?.debt) || 0;
+
+    let clearDebt = false;
+    if (debt > 0) {
+      /* Le membre a une dette en cours : on propose de la régler en même
+         temps (ex: reçue en main propre), sans l'imposer. */
+      const confirmed = await new Promise(resolve => {
+        Modal.open(`Confirmer le paiement de ${memberName} ?`, `
+          <p style="font-size:var(--fs-sm);color:var(--color-text-2);margin-bottom:12px">Cette action sera enregistrée dans le journal de la tontine et visible par tous les membres.</p>
+          <label style="display:flex;align-items:center;gap:8px;font-size:var(--fs-sm);cursor:pointer">
+            <input type="checkbox" id="clear-debt-checkbox" />
+            Régler aussi sa dette existante de ${UI.formatAmount(debt)}
+          </label>
+        `, `
+          <button class="btn-primary btn-full" id="modal-record-confirm-btn">Confirmer le paiement</button>
+          <button class="btn-ghost btn-full" onclick="Modal.close()">Annuler</button>
+        `);
+        document.getElementById('modal-record-confirm-btn').addEventListener('click', () => {
+          clearDebt = document.getElementById('clear-debt-checkbox')?.checked || false;
+          Modal.close();
+          resolve(true);
+        });
+        document.getElementById('modal-overlay').addEventListener('click', (e) => {
+          if (e.target === document.getElementById('modal-overlay')) { Modal.close(); resolve(false); }
+        }, { once: true });
+      });
+      if (!confirmed) return;
+    } else {
+      const confirmed = await Modal.confirm(`Confirmer le paiement de ${memberName} ?`, `Cette action sera enregistrée dans le journal de la tontine et visible par tous les membres.`, 'Confirmer le paiement');
+      if (!confirmed) return;
+    }
+
+    const res = await API.request('recordPayment', { tontineId: App.currentTontine.id, memberId, clearDebt });
     if (res.success) {
-      Toast.show(`Paiement de ${memberName} enregistré`, 'success');
+      Toast.show(`Paiement de ${memberName} enregistré` + (res.data?.clearedDebt ? ` — dette de ${UI.formatAmount(res.data.clearedDebt)} réglée` : ''), 'success');
       /* Update local state */
-      if (member) member.paid = true;
+      if (member) {
+        member.paid = true;
+        if (clearDebt) member.debt = 0;
+      }
       this.render(App.currentTontine);
       this._flashMemberRow(memberId);
     }
+  },
+
+  /* Marque manuellement la dette d'un membre comme réglée (ex: en main propre) */
+  async settleDebt(memberId) {
+    const member = App.currentTontine.members.find(m => m.id === memberId);
+    if (!member || !(Number(member.debt) > 0)) return;
+    const confirmed = await Modal.confirm(
+      `Marquer la dette de ${member.name} comme réglée ?`,
+      `Montant : ${UI.formatAmount(member.debt)}. À utiliser si la somme a été remise autrement (en main propre, etc.).`,
+      'Marquer comme réglée'
+    );
+    if (!confirmed) return;
+    const res = await API.request('settleDebt', { tontineId: App.currentTontine.id, memberId });
+    if (res.success) {
+      Toast.show('Dette réglée.', 'success');
+      member.debt = 0;
+      this.render(App.currentTontine);
+    } else {
+      Toast.show(res.message || 'Erreur', 'error');
+    }
+  },
+
+  /* Fait avancer la tontine au tour suivant : verse la cagnotte au
+     bénéficiaire actuel, enregistre une dette pour qui n'a pas payé, et
+     prévient l'admin avant de continuer s'il reste des impayés. */
+  async advanceTour(force = false) {
+    const t = App.currentTontine;
+    const res = await API.request('nextTour', { tontineId: t.id, force });
+    if (!res.success) { Toast.show(res.message || 'Erreur', 'error'); return; }
+
+    if (res.data?.needsConfirmation) {
+      const names = res.data.unpaidMembers.map(u => u.name).join(', ');
+      const confirmed = await Modal.confirm(
+        'Des membres n\'ont pas payé',
+        `${names} n'${res.data.unpaidMembers.length > 1 ? 'ont' : 'a'} pas encore payé ce tour. Si vous continuez, une dette de ${UI.formatAmount(res.data.amount)} sera enregistrée pour chacun. Continuer quand même ?`,
+        'Continuer et enregistrer les dettes'
+      );
+      if (!confirmed) return;
+      return this.advanceTour(true);
+    }
+
+    Toast.show(res.message || 'Tour suivant lancé !', 'success');
+    this.refresh(t.id);
   },
 
   /* Affiche comment payer directement l'admin (numéro Mobile Money personnel),
@@ -2689,6 +2788,9 @@ function setupEventListeners() {
       row.style.display = !q || (row.dataset.searchName || '').includes(q) ? '' : 'none';
     });
   });
+
+  /* Passage au tour suivant (versement de la cagnotte) */
+  document.getElementById('btn-next-tour')?.addEventListener('click', () => TontineDetail.advanceTour());
 
   /* Export CSV/Excel — câblé une seule fois ; lit les données à jour au clic */
   document.getElementById('btn-export-transactions')?.addEventListener('click', () => {
