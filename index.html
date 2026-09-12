@@ -5,11 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0f6b4a" />
   <meta name="description" content="Tontines Facile — Gérez vos tontines en toute transparence" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Tontines Facile" />
-  <link rel="manifest" href="#" id="manifest-link" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="32x32"  href="/icons/icon-96.png" />
+  <link rel="manifest" href="/manifest.json" id="manifest-link" />
+  <link rel="stylesheet" href="/style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <title>Tontines Facile</title>
@@ -43,6 +47,11 @@
 <!-- ═══════════════════════════════ APP WRAPPER ═══════════════════════════════ -->
 <div id="app" class="app hidden">
 
+  <!-- ── BARRE DE CHARGEMENT GLOBALE ── -->
+  <!-- Affichée automatiquement dès qu'une requête réseau est en cours, où
+       qu'on soit dans l'application (voir API.request dans app.js) -->
+  <div id="global-loading-bar" class="global-loading-bar" aria-hidden="true"></div>
+
   <!-- ── TOP BAR ── -->
   <header class="topbar" id="topbar">
     <div class="topbar-left">
@@ -54,6 +63,10 @@
         <span>Tontines Facile</span>
       </div>
       <h2 class="topbar-title hidden" id="topbar-title"></h2>
+      <div class="topbar-chat-info hidden" id="topbar-chat-info">
+        <div class="avatar-sm" id="topbar-chat-avatar"></div>
+        <span id="topbar-chat-name"></span>
+      </div>
     </div>
     <div class="topbar-right">
       <button class="btn-icon notif-btn" id="btn-notif" aria-label="Notifications">
@@ -66,14 +79,28 @@
     </div>
   </header>
 
+  <!-- ── BANNIÈRE MODE DÉMO ── -->
+  <div id="demo-banner" class="demo-banner hidden" aria-live="polite">
+    <div class="demo-banner-content">
+      <div class="demo-banner-text">
+        <span class="demo-badge">DÉMO</span>
+        <span>Vous visitez l'application avec des données fictives.</span>
+      </div>
+      <div class="demo-banner-actions">
+        <button class="demo-btn-auth demo-btn-register" id="btn-banner-register">Créer un compte</button>
+        <button class="demo-btn-auth demo-btn-login" id="btn-banner-login">Se connecter</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── DROPDOWN MENU ── -->
   <div class="dropdown-menu hidden" id="dropdown-menu">
     <div class="dropdown-header">
       <div class="dropdown-user" id="dropdown-user-info">
         <div class="avatar-sm" id="dropdown-avatar">JD</div>
         <div>
-          <p class="dropdown-name" id="dropdown-name">Jean Dupont</p>
-          <p class="dropdown-email" id="dropdown-email">jean@example.com</p>
+          <p class="dropdown-name" id="dropdown-name"></p>
+          <p class="dropdown-email" id="dropdown-email"></p>
         </div>
       </div>
     </div>
@@ -83,8 +110,12 @@
       <a href="#" class="dropdown-link" data-page="transactions"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg> Transactions</a>
       <a href="#" class="dropdown-link" data-page="audit-log"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" fill="none"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" fill="none"/><line x1="16" y1="13" x2="8" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="17" x2="8" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Journal d'audit</a>
       <a href="#" class="dropdown-link" data-page="invite"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="8.5" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/><line x1="20" y1="8" x2="20" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="23" y1="11" x2="17" y2="11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Inviter</a>
+      <a href="#" class="dropdown-link" data-page="contacts"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/><line x1="19" y1="8" x2="19" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="22" y1="11" x2="16" y2="11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Contacts</a>
+      <a href="#" class="dropdown-link" data-page="chat"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Messages <span class="notif-badge-inline" id="chat-unread-badge" style="display:none">0</span></a>
       <div class="dropdown-divider"></div>
       <a href="#" class="dropdown-link" data-page="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="2" fill="none"/></svg> Paramètres</a>
+      <a href="#" class="dropdown-link" data-page="terms"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="17" x2="16" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Conditions d'utilisation</a>
+      <a href="#" class="dropdown-link" data-page="privacy"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg> Confidentialité</a>
       <a href="#" class="dropdown-link danger" id="btn-logout"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Déconnexion</a>
     </nav>
   </div>
@@ -172,11 +203,11 @@
         <div class="greeting-card">
           <div class="greeting-text">
             <p class="greeting-sub">Bonjour 👋</p>
-            <h2 class="greeting-name" id="greeting-name">Jean</h2>
+            <h2 class="greeting-name" id="greeting-name"></h2>
             <p class="greeting-hint">Voici un aperçu de vos tontines</p>
           </div>
           <div class="greeting-avatar">
-            <div class="avatar-lg" id="dashboard-avatar">JD</div>
+            <div class="avatar-lg" id="dashboard-avatar"></div>
           </div>
         </div>
 
@@ -266,9 +297,12 @@
       <div class="page-content">
         <div class="tontine-header-card" id="detail-header">
           <div class="tontine-title-row">
-            <div>
-              <h2 id="detail-name">Nom de la tontine</h2>
-              <span class="badge" id="detail-badge">Actif</span>
+            <div class="tontine-title-with-icon">
+              <div class="tontine-detail-icon" id="detail-icon"></div>
+              <div>
+                <h2 id="detail-name">Nom de la tontine</h2>
+                <span class="badge" id="detail-badge">Actif</span>
+              </div>
             </div>
             <div class="tontine-actions" id="detail-admin-actions"></div>
           </div>
@@ -315,9 +349,24 @@
               </div>
             </div>
           </div>
+          <button class="btn-primary btn-full" id="btn-next-tour" style="display:none">
+            Passer au tour suivant →
+          </button>
+          <div class="form-card" id="detail-debts-card" style="display:none">
+            <h3 class="card-title">⚠️ Dettes en cours</h3>
+            <div id="detail-debts-list"></div>
+          </div>
         </div>
 
         <div class="tab-content" id="tab-members">
+          <div class="form-card" id="detail-pending-requests-card" style="display:none;">
+            <h3 class="card-title">Demandes en attente</h3>
+            <div id="detail-pending-requests-list"></div>
+          </div>
+          <div class="search-bar" id="members-search-bar" style="display:none;margin-bottom:var(--sp-sm)">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2" fill="none"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <input type="text" placeholder="Rechercher un membre..." id="search-members" />
+          </div>
           <div class="members-list" id="detail-members-list"></div>
           <button class="btn-ghost btn-full mt" id="btn-invite-member">
             <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -486,9 +535,10 @@
             <button class="avatar-edit-btn" id="btn-edit-avatar">
               <svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
             </button>
+            <input type="file" accept="image/*" id="avatar-file-input" style="display:none" />
           </div>
-          <h2 id="profile-name">Jean Dupont</h2>
-          <p id="profile-email">jean@exemple.com</p>
+          <h2 id="profile-name"></h2>
+          <p id="profile-email"></p>
           <div class="profile-badges">
             <span class="badge-role" id="profile-role">Membre</span>
           </div>
@@ -538,7 +588,7 @@
               <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
             </button>
           </div>
-          <p class="invite-hint">Partagez ce code pour inviter des amis à rejoindre vos tontines</p>
+          <p class="invite-hint">Ce code identifie votre compte, il n'est pas lié à une tontine précise. Pour rejoindre UNE tontine, utilisez le code affiché sur la page "Inviter" de cette tontine (ou demandez-le à son administrateur).</p>
         </div>
       </div>
     </section>
@@ -683,6 +733,10 @@
           <button class="chip" data-filter="pending">En attente</button>
           <button class="chip" data-filter="received">Reçues</button>
         </div>
+        <button class="btn-ghost btn-full" id="btn-export-transactions">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          Exporter en Excel/CSV
+        </button>
         <div class="transactions-list" id="transactions-list">
           <div class="empty-state"><p>Aucune transaction</p></div>
         </div>
@@ -696,6 +750,10 @@
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/><line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="16" x2="12.01" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <p>Toutes les actions sont enregistrées et immuables. Aucune modification n'est possible après enregistrement.</p>
         </div>
+        <button class="btn-ghost btn-full" id="btn-export-audit-log">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          Exporter en Excel/CSV
+        </button>
         <div class="log-list full" id="audit-log-list">
           <div class="empty-state"><p>Aucune entrée dans le journal</p></div>
         </div>
@@ -712,15 +770,39 @@
         </div>
 
         <div class="form-card">
-          <h3 class="card-title">Inviter par email</h3>
+          <h3 class="card-title">Sélectionner une tontine</h3>
           <div class="form-group">
-            <label class="form-label">Sélectionner une tontine</label>
             <div class="select-wrap">
               <select class="form-input form-select" id="invite-tontine-select">
                 <option value="">-- Choisir une tontine --</option>
               </select>
             </div>
           </div>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Code de la tontine</h3>
+          <p class="form-hint" id="invite-code-hint" style="color:var(--color-text-2);font-size:var(--fs-sm);margin-bottom:8px;">Sélectionnez une tontine ci-dessus pour afficher son code.</p>
+          <div class="invite-code-box" id="invite-code-display" style="display:none;">
+            <span id="invite-tontine-code">—</span>
+            <button class="btn-icon" id="btn-copy-tontine-code" title="Copier le code">
+              <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Ajouter directement un membre</h3>
+          <p class="form-hint" style="color:var(--color-text-2);font-size:var(--fs-sm);margin-bottom:8px;">Si la personne a déjà un compte Tontines Facile, ajoutez-la immédiatement sans passer par une invitation par email.</p>
+          <div class="form-group">
+            <label class="form-label">Email ou téléphone du membre</label>
+            <input type="text" class="form-input" id="direct-add-identifier" placeholder="email@exemple.com ou +237 6 XX XX XX XX"/>
+          </div>
+          <button class="btn-primary btn-full" id="btn-direct-add">Ajouter à la tontine</button>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Inviter par email</h3>
           <div class="form-group">
             <label class="form-label">Email(s) de l'invité</label>
             <input type="email" class="form-input" id="invite-email" placeholder="ami@exemple.com"/>
@@ -749,8 +831,143 @@
             </button>
           </div>
           <div class="share-link-box">
-            <span id="share-link">https://tontinesfacile.app/join/TF-ABC123</span>
+            <span id="share-link">Sélectionnez une tontine ci-dessus</span>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: CONTACTS ── -->
+    <section class="page" id="page-contacts">
+      <div class="page-content">
+        <div class="form-card">
+          <h3 class="card-title">Ajouter un contact</h3>
+          <p class="form-hint" style="color:var(--color-text-2);font-size:var(--fs-sm);margin-bottom:8px;">Recherchez par email, téléphone ou code d'invitation (ex: TF-KA2025).</p>
+          <div class="form-group">
+            <input type="text" class="form-input" id="contacts-search-input" placeholder="Rechercher un utilisateur..." />
+          </div>
+          <div id="contacts-search-results"></div>
+        </div>
+
+        <div class="form-card" id="contacts-incoming-card" style="display:none;">
+          <h3 class="card-title">Demandes reçues</h3>
+          <div id="contacts-incoming-list"></div>
+        </div>
+
+        <div class="form-card" id="contacts-outgoing-card" style="display:none;">
+          <h3 class="card-title">Demandes envoyées</h3>
+          <div id="contacts-outgoing-list"></div>
+        </div>
+
+        <div class="form-card">
+          <h3 class="card-title">Mes contacts</h3>
+          <div id="contacts-accepted-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: CHAT (liste des conversations) ── -->
+    <section class="page" id="page-chat">
+      <div class="page-content chat-list-content">
+        <div class="search-bar chat-search-bar">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2" fill="none"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="text" placeholder="Rechercher une conversation..." id="search-conversations" />
+        </div>
+        <div id="chat-conversations-list"></div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: CHAT (fil de discussion) ── -->
+    <section class="page" id="page-chat-thread">
+      <div class="page-content chat-thread-content">
+        <div class="chat-messages" id="chat-messages-list"></div>
+        <div class="chat-input-bar">
+          <input type="file" id="chat-file-input" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" style="display:none" />
+          <div class="chat-input-pill">
+            <button class="btn-icon chat-attach-btn" id="btn-chat-attach" aria-label="Joindre un fichier">
+              <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+            </button>
+            <textarea class="chat-textarea" id="chat-message-input" placeholder="Écrire un message..." rows="1"></textarea>
+          </div>
+          <button class="chat-round-btn" id="btn-chat-record" aria-label="Message vocal">
+            <svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+          </button>
+          <button class="chat-round-btn chat-send-btn hidden" id="btn-chat-send" aria-label="Envoyer">
+            <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polygon points="22 2 15 22 11 13 2 9 22 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: CONDITIONS D'UTILISATION ── -->
+    <section class="page" id="page-terms">
+      <div class="page-content">
+        <div class="form-card legal-content">
+          <p class="legal-updated">Dernière mise à jour : Juillet 2026</p>
+
+          <h3 class="card-title">1. Objet</h3>
+          <p>Tontine App est un outil numérique de coordination et de suivi de tontines (épargne rotative entre particuliers). L'application facilite l'organisation, le suivi des cotisations déclarées et la communication entre membres d'un groupe de tontine.</p>
+
+          <h3 class="card-title">2. Zone de disponibilité</h3>
+          <p>L'application est actuellement disponible uniquement pour les résidents du Cameroun. Une extension progressive à d'autres pays d'Afrique est prévue ; la disponibilité dans un nouveau pays sera annoncée dans l'application.</p>
+
+          <h3 class="card-title">3. Nature du service — ce que l'application n'est pas</h3>
+          <p>Tontine App n'est ni une banque, ni un établissement de microfinance, ni un prestataire de services de paiement agréé. L'application ne détient, ne séquestre et ne transfère aucun fonds. Les cotisations sont échangées directement entre membres (en espèces, par mobile money ou tout autre moyen convenu entre eux) ; l'application ne fait qu'enregistrer les déclarations de paiement communiquées par les membres ou administrateurs de chaque tontine.</p>
+
+          <h3 class="card-title">4. Responsabilité</h3>
+          <p>Chaque tontine est organisée et administrée sous la responsabilité de ses membres. L'exactitude des montants, des dates et des statuts de paiement déclarés relève de la responsabilité de l'administrateur de la tontine et de ses membres. Tontine App ne garantit pas le respect des engagements financiers pris entre les membres et ne peut être tenu responsable en cas de non-paiement, de litige ou de fraude entre utilisateurs.</p>
+
+          <h3 class="card-title">5. Compte utilisateur</h3>
+          <p>Vous êtes responsable de la confidentialité de vos identifiants de connexion et de toute activité effectuée depuis votre compte. Toute utilisation frauduleuse doit être signalée sans délai.</p>
+
+          <h3 class="card-title">6. Comportement des utilisateurs</h3>
+          <p>Il est interdit d'utiliser l'application à des fins illégales, frauduleuses, ou pour harceler, menacer ou usurper l'identité d'autrui, notamment via les fonctionnalités de messagerie (chat) et de contacts.</p>
+
+          <h3 class="card-title">7. Modification des conditions</h3>
+          <p>Ces conditions peuvent être mises à jour. Les utilisateurs seront informés des changements significatifs via l'application.</p>
+
+          <h3 class="card-title">8. Droit applicable</h3>
+          <p>Les présentes conditions sont régies par le droit camerounais et les actes uniformes OHADA applicables.</p>
+
+          <h3 class="card-title">9. Contact</h3>
+          <p>Pour toute question relative à ces conditions, contactez-nous depuis la page Paramètres de l'application.</p>
+
+          <p class="legal-disclaimer">⚠️ Document type à faire valider par un professionnel du droit camerounais avant mise en production.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PAGE: POLITIQUE DE CONFIDENTIALITÉ ── -->
+    <section class="page" id="page-privacy">
+      <div class="page-content">
+        <div class="form-card legal-content">
+          <p class="legal-updated">Dernière mise à jour : Juillet 2026</p>
+
+          <h3 class="card-title">1. Données collectées</h3>
+          <p>Nous collectons : vos nom, prénom, email et/ou numéro de téléphone lors de l'inscription ; les données relatives aux tontines que vous créez ou rejoignez (montants, statuts de cotisation) ; votre photo de profil si vous choisissez d'en ajouter une ; le contenu des messages échangés via la messagerie intégrée ; vos contacts ajoutés dans l'application.</p>
+
+          <h3 class="card-title">2. Utilisation des données</h3>
+          <p>Vos données servent exclusivement au fonctionnement de l'application : gestion de votre compte, suivi des tontines, notifications, mise en relation avec vos contacts et messagerie. Nous ne vendons pas vos données à des tiers.</p>
+
+          <h3 class="card-title">3. Partage des données</h3>
+          <p>Vos informations de profil (nom, photo) sont visibles par les membres des tontines que vous rejoignez et par vos contacts acceptés. Les messages échangés dans le chat ne sont visibles que par les participants de la conversation concernée.</p>
+
+          <h3 class="card-title">4. Conservation et sécurité</h3>
+          <p>Les données sont stockées sur des serveurs sécurisés. Les mots de passe sont chiffrés. Les photos de profil et pièces jointes du chat sont stockées de façon chiffrée en base de données. Nous conservons vos données tant que votre compte est actif.</p>
+
+          <h3 class="card-title">5. Vos droits</h3>
+          <p>Vous pouvez à tout moment demander l'accès, la rectification ou la suppression de vos données personnelles depuis la page Paramètres, ou en nous contactant directement.</p>
+
+          <h3 class="card-title">6. Cookies et stockage local</h3>
+          <p>L'application utilise le stockage local de votre appareil pour conserver votre session de connexion. Aucune donnée n'est partagée avec des régies publicitaires.</p>
+
+          <h3 class="card-title">7. Mineurs</h3>
+          <p>L'application n'est pas destinée aux personnes de moins de 18 ans.</p>
+
+          <h3 class="card-title">8. Contact</h3>
+          <p>Pour exercer vos droits ou pour toute question relative à vos données, contactez-nous depuis la page Paramètres de l'application.</p>
+
+          <p class="legal-disclaimer">⚠️ Document type à faire valider par un professionnel du droit camerounais avant mise en production (conformité à la loi camerounaise n°2010/012 relative à la cybersécurité et à la cybercriminalité, et aux textes applicables à la protection des données personnelles).</p>
         </div>
       </div>
     </section>
@@ -799,9 +1016,43 @@
   </div>
 </div>
 
+<!-- ─ PWA INSTALL BTN ─ -->
+<button id="pwa-install-btn" aria-label="Installer l'application">📲 Installer l'app</button>
+
 <!-- ─ TOAST ─ -->
 <div class="toast-container" id="toast-container"></div>
 
-<script src="app.js"></script>
+<!-- Cœur de l'application (Configuration, Notifications, Modales, UI, API, Navigation) -->
+<script src="/js/core/config.js"></script>
+<script src="/js/core/toast.js"></script>
+<script src="/js/core/modal.js"></script>
+<script src="/js/core/ui.js"></script>
+<script src="/js/core/api.js"></script>
+<script src="/js/core/nav.js"></script>
+
+<!-- Module utilitaire d'améliorations et de sécurité -->
+<script src="/improvements.js"></script>
+
+<!-- Modules fonctionnels par page -->
+<script src="/js/pages/auth.js"></script>
+<script src="/js/pages/dashboard.js"></script>
+<script src="/js/pages/tontines.js"></script>
+<script src="/js/pages/tontine-detail.js"></script>
+<script src="/js/pages/create-tontine.js"></script>
+<script src="/js/pages/join-tontine.js"></script>
+<script src="/js/pages/transactions.js"></script>
+<script src="/js/pages/audit-log.js"></script>
+<script src="/js/pages/profile.js"></script>
+<script src="/js/pages/settings.js"></script>
+<script src="/js/pages/contacts.js"></script>
+<script src="/js/pages/chat.js"></script>
+<script src="/js/pages/invite.js"></script>
+
+<!-- Modules PWA et Installation native WebAPK -->
+<script src="/js/pwa/pwa-install.js"></script>
+<script src="/js/pwa/sw-manager.js"></script>
+
+<!-- Point d'entrée principal de l'application -->
+<script src="/js/app.js"></script>
 </body>
 </html>

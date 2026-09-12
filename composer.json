@@ -1,0 +1,6 @@
+{
+    "name": "aboubakariut/tontine",
+    "require": {
+        "php": "^8.0"
+    }
+}

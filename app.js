@@ -1,0 +1,3445 @@
+/* ══════════════════════════════════════════════════════════════════
+   TONTINES FACILE — app.js
+   Navigation, State Management, UI Logic, API Calls
+   ══════════════════════════════════════════════════════════════════ */
+
+'use strict';
+
+/* ═══════════════════════════════ APP STATE ═══════════════════════════════ */
+const App = {
+  /* Current state */
+  currentPage: 'auth',
+  currentUser: null,
+  currentTontine: null,
+  settings: {
+    theme: 'emerald',
+    fontSize: 'medium',
+    notifications: { payment: true, requests: true, confirmed: true, audit: false },
+    security: { pin: false, hideAmounts: false }
+  },
+
+  isDemoMode() {
+    return this.token === 'demo-token-123';
+  },
+
+  checkDemoRestriction(actionLabel) {
+    if (this.isDemoMode()) {
+      if (typeof Modal !== 'undefined' && Modal.showDemoRestriction) {
+        Modal.showDemoRestriction(actionLabel);
+      } else {
+        alert('Cette fonctionnalité nécessite un compte connecté.');
+      }
+      return true;
+    }
+    return false;
+  },
+
+  /* Demo data for offline/demo mode */
+  demoData: {
+    user: {
+      id: 1, firstname: 'Kouamé', lastname: 'Adjoumani', email: 'k.adjoumani@gmail.com',
+      phone: '+225 07 04 23 45 10', inviteCode: 'TF-KA2025',
+      avatar: 'KA', role: 'Admin & Membre'
+    },
+    tontines: [
+      {
+        id: 1, name: 'Tontine Famille Adjoumani', description: 'Épargne collective mensuelle pour les projets familiaux. Chaque membre contribue 25 000 FCFA par mois.',
+        amount: 25000, frequency: 'monthly', maxMembers: 12, currentMembers: 8,
+        status: 'active', startDate: '2025-01-15', currentTour: 3, totalTours: 12,
+        pot: 200000, userRole: 'admin', badge: 'badge-active', badgeText: 'Actif',
+        nextPaymentDate: '2025-05-01', nextBeneficiary: 'Marie K.',
+        inviteCode: 'TF-FAM001', publicLog: true, requireApproval: true,
+        members: [
+          { id: 1, name: 'Kouamé Adjoumani', initials: 'KA', role: 'Administrateur', paid: true, order: 5 },
+          { id: 2, name: 'Marie Koffi', initials: 'MK', role: 'Membre', paid: true, order: 1 },
+          { id: 3, name: 'Jean-Paul Brou', initials: 'JB', role: 'Membre', paid: false, order: 2 },
+          { id: 4, name: 'Aminata Diallo', initials: 'AD', role: 'Membre', paid: true, order: 3 },
+          { id: 5, name: 'Konan Yao', initials: 'KY', role: 'Membre', paid: false, order: 4 },
+          { id: 6, name: 'Fatou Traoré', initials: 'FT', role: 'Membre', paid: true, order: 6 },
+          { id: 7, name: 'Awa Coulibaly', initials: 'AC', role: 'Membre', paid: true, order: 7 },
+          { id: 8, name: 'Didier Akpo', initials: 'DA', role: 'Membre', paid: false, order: 8 }
+        ],
+        log: [
+          { type: 'payment', action: 'Paiement confirmé', detail: 'Marie Koffi a effectué sa mise de 25 000 FCFA', user: 'Marie K.', time: 'Il y a 2h', icon: '💰' },
+          { type: 'payment', action: 'Paiement confirmé', detail: 'Aminata Diallo a effectué sa mise de 25 000 FCFA', user: 'A. Diallo', time: 'Il y a 5h', icon: '💰' },
+          { type: 'admin', action: 'Rappel envoyé', detail: "L'admin a envoyé un rappel à Jean-Paul Brou et Konan Yao", user: 'Kouamé A.', time: 'Hier', icon: '📢' },
+          { type: 'system', action: 'Tour 3 démarré', detail: 'Le tour 3 a démarré. Bénéficiaire : Marie Koffi', user: 'Système', time: 'Il y a 3 jours', icon: '🔄' },
+          { type: 'member', action: 'Nouveau membre', detail: 'Awa Coulibaly a rejoint la tontine', user: 'Kouamé A.', time: 'Il y a 1 sem.', icon: '👤' }
+        ]
+      },
+      {
+        id: 2, name: 'Tontine Collègues SGBCI', description: 'Tontine des employés de la direction commerciale.',
+        amount: 10000, frequency: 'biweekly', maxMembers: 6, currentMembers: 6,
+        status: 'active', startDate: '2025-02-01', currentTour: 5, totalTours: 6,
+        pot: 60000, userRole: 'member', badge: 'badge-active', badgeText: 'Actif',
+        nextPaymentDate: '2025-04-28', nextBeneficiary: 'Kouamé A.',
+        inviteCode: 'TF-SGC002', publicLog: true, requireApproval: false,
+        members: [
+          { id: 1, name: 'Kouamé Adjoumani', initials: 'KA', role: 'Membre', paid: true, order: 5 },
+          { id: 2, name: 'Solange Boua', initials: 'SB', role: 'Administrateur', paid: true, order: 1 },
+          { id: 3, name: 'Romuald Bah', initials: 'RB', role: 'Membre', paid: true, order: 2 },
+          { id: 4, name: 'Mariam Touré', initials: 'MT', role: 'Membre', paid: true, order: 3 },
+          { id: 5, name: 'Yves Gnagnon', initials: 'YG', role: 'Membre', paid: false, order: 4 },
+          { id: 6, name: 'Estelle Kouame', initials: 'EK', role: 'Membre', paid: true, order: 6 }
+        ],
+        log: [
+          { type: 'payment', action: 'Paiement reçu', detail: 'Kouamé Adjoumani — 10 000 FCFA', user: 'Kouamé A.', time: 'Aujourd\'hui', icon: '✅' },
+          { type: 'admin', action: 'Ordre des tours modifié', detail: 'L\'administrateur a réorganisé l\'ordre des bénéficiaires', user: 'Solange B.', time: 'Il y a 2 jours', icon: '🔀' }
+        ]
+      }
+    ],
+    transactions: [
+      { id: 1, type: 'out', name: 'Mise mensuelle', tontine: 'Tontine Famille Adjoumani', amount: 25000, date: '2025-04-15', status: 'paid' },
+      { id: 2, type: 'in', name: 'Cagnotte reçue', tontine: 'Tontine Collègues SGBCI', amount: 60000, date: '2025-03-20', status: 'received' },
+      { id: 3, type: 'out', name: 'Mise bi-mensuelle', tontine: 'Tontine Collègues SGBCI', amount: 10000, date: '2025-04-14', status: 'paid' },
+      { id: 4, type: 'out', name: 'Mise mensuelle', tontine: 'Tontine Famille Adjoumani', amount: 25000, date: '2025-03-15', status: 'paid' },
+      { id: 5, type: 'out', name: 'Mise bi-mensuelle', tontine: 'Tontine Collègues SGBCI', amount: 10000, date: '2025-03-28', status: 'pending' }
+    ],
+    globalLog: [
+      { type: 'payment', action: 'Paiement confirmé', detail: 'Tontine Famille — Marie Koffi, 25 000 FCFA', user: 'Marie K.', time: 'Il y a 2h' },
+      { type: 'admin', action: 'Rappel de paiement', detail: 'Tontine Famille — Rappel envoyé à 2 membres', user: 'Kouamé A.', time: 'Il y a 5h' },
+      { type: 'member', action: 'Demande acceptée', detail: 'Awa Coulibaly a rejoint Tontine Famille', user: 'Kouamé A.', time: 'Hier' },
+      { type: 'payment', action: 'Cagnotte versée', detail: 'Tour 2 — 200 000 FCFA versés à Jean-Paul Brou', user: 'Système', time: 'Il y a 3 jours' },
+      { type: 'system', action: 'Tour lancé', detail: 'Tontine Famille — Tour 3 démarré', user: 'Système', time: 'Il y a 3 jours' },
+      { type: 'admin', action: 'Pénalité appliquée', detail: 'Konan Yao — Retard de 3 jours, pénalité 500 FCFA', user: 'Kouamé A.', time: 'Il y a 5 jours' }
+    ],
+    invitations: [
+      { id: 1, tontine: 'Tontine Amis Université', from: 'Dr. Akou Mensah', amount: 15000, freq: 'Mensuel', code: 'TF-UNIV3' }
+    ]
+  }
+};
+
+/* ═══════════════════════════════ API HANDLER ═══════════════════════════════ */
+const API = {
+  base: '/api/api.php',
+  _pending: 0,
+  _hideTimer: null,
+
+  _showLoadingBar() {
+    this._pending++;
+    if (this._hideTimer) { clearTimeout(this._hideTimer); this._hideTimer = null; }
+    const bar = document.getElementById('global-loading-bar');
+    if (bar) bar.classList.add('active');
+  },
+  _hideLoadingBar() {
+    this._pending = Math.max(0, this._pending - 1);
+    if (this._pending > 0) return;
+    /* Petit délai pour éviter un clignotement si une autre requête démarre juste après */
+    this._hideTimer = setTimeout(() => {
+      if (this._pending === 0) document.getElementById('global-loading-bar')?.classList.remove('active');
+    }, 150);
+  },
+
+  async request(action, data = {}) {
+    /* 1. Action de connexion en démo : immédiate sans requête réseau */
+    if (action === 'demo') {
+      return { success: true, user: App.demoData.user, token: 'demo-token-123' };
+    }
+
+    /* 2. Si l'utilisateur est en mode démo, filtrer strictement l'accès */
+    if (App.isDemoMode()) {
+      /* Actions consultatives / statiques autorisées en mode démo */
+      const demoQueries = {
+        getTontines: () => ({ success: true, data: App.demoData.tontines }),
+        getTontine: () => {
+          const tid = Number(data.tontineId || 1);
+          const t = App.demoData.tontines.find(item => item.id === tid) || App.demoData.tontines[0];
+          return { success: true, data: t };
+        },
+        getTransactions: () => ({ success: true, data: App.demoData.transactions }),
+        getGlobalLog: () => ({ success: true, data: { items: App.demoData.globalLog, total: App.demoData.globalLog.length, offset: 0, limit: 50 } }),
+        getInvitations: () => ({ success: true, data: App.demoData.invitations }),
+        getNotifications: () => ({ success: true, data: { notifications: [], unread: 0 } }),
+        getStats: () => ({ success: true, data: { activeTontines: 2, totalSavings: 260000, totalMembers: 14 } }),
+        getPendingMembers: () => ({ success: true, data: [] }),
+        getConversations: () => ({ success: true, data: [] }),
+        getMessages: () => ({ success: true, data: [] }),
+        getMomoInfo: () => ({
+          success: true,
+          data: {
+            operator: 'MTN Mobile Money',
+            number: '+225 07 04 23 45 10',
+            amountFormatted: '25 000 FCFA',
+            ussdCode: '*126#'
+          }
+        }),
+        searchTontine: () => {
+          const code = (data.code || '').toUpperCase().trim();
+          const t = App.demoData.tontines.find(item => (item.inviteCode || '').toUpperCase() === code);
+          if (t) {
+            return {
+              success: true,
+              data: {
+                id: t.id,
+                name: t.name,
+                amount: t.amount,
+                members: `${t.currentMembers}/${t.maxMembers}`,
+                admin: t.members.find(m => m.role === 'Administrateur')?.name || 'Admin',
+                start: t.startDate,
+                desc: t.description
+              }
+            };
+          }
+          return { success: false, message: 'Tontine introuvable avec ce code en démo (essayez TF-FAM001).' };
+        }
+      };
+
+      if (demoQueries[action]) {
+        return demoQueries[action]();
+      }
+
+      /* TOUTES LES AUTRES ACTIONS sont des mutations backend : BLOQUÉES EN DÉMO */
+      const demoActionLabels = {
+        createTontine:     'créer une nouvelle tontine',
+        joinTontine:       'rejoindre une tontine',
+        recordPayment:     'confirmer ou valider un paiement',
+        declarePayment:    'déclarer un paiement de cotisation',
+        rejectPayment:     'rejeter une déclaration de paiement',
+        nextTour:          'passer au tour suivant',
+        settleDebt:        'marquer une dette comme réglée',
+        approveMember:     'approuver ou refuser une demande d\'adhésion',
+        updateMemberRole:  'modifier les privilèges d\'administration',
+        removeMember:      'retirer un membre de la tontine',
+        updateTontine:     'modifier les informations de la tontine',
+        updateTontineIcon: 'changer la photo ou l\'icône de la tontine',
+        updateTontineMomo: 'enregistrer vos coordonnées Mobile Money',
+        closeTontine:      'fermer définitivement la tontine',
+        deleteTontine:     'supprimer définitivement la tontine',
+        sendInvite:        'envoyer des invitations par email',
+        sendReminder:      'envoyer des rappels par email ou SMS',
+        updateProfile:     'mettre à jour vos informations personnelles',
+        changePassword:    'changer votre mot de passe',
+        updateAvatar:      'modifier votre photo de profil',
+        sendMessage:       'envoyer des messages dans le chat',
+        exportData:        'télécharger l\'export CSV des données'
+      };
+
+      const label = demoActionLabels[action] || 'effectuer cette action backend';
+      if (typeof Modal !== 'undefined' && Modal.showDemoRestriction) {
+        Modal.showDemoRestriction(label);
+      }
+      return { success: false, demoRestricted: true, message: `Fonctionnalité réservée aux membres connectés pour ${label}.` };
+    }
+
+    /* 3. Utilisateur réel : appel au serveur backend */
+    this._showLoadingBar();
+    try {
+      const res = await fetch(this.base, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...data, token: App.token })
+      });
+      return await res.json();
+    } catch {
+      const fallback = this.demoFallback(action, data);
+      fallback.networkError = true;
+      return fallback;
+    } finally {
+      this._hideLoadingBar();
+    }
+  },
+
+  demoFallback(action, data) {
+    switch (action) {
+      case 'login':
+        return { success: false, message: 'Serveur inaccessible. Vérifiez votre connexion.' };
+      case 'register':
+        return { success: false, message: 'Serveur inaccessible. Vérifiez votre connexion.' };
+      default:
+        return { success: false, message: 'Serveur inaccessible.' };
+    }
+  }
+};
+
+/* ═══════════════════════════════ NAVIGATION ═══════════════════════════════ */
+/* ═══════════════════════════════ NAVIGATION ═══════════════════════════════ */
+const Nav = {
+  history: [],
+
+  go(page, title = '', fromPopstate = false) {
+    /* Stoppe le rafraîchissement automatique des messages si on quitte le fil de discussion */
+    if (page !== 'chat-thread' && typeof Chat !== 'undefined') Chat.stopPolling();
+
+    /* Hide all pages */
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+    const pageEl = document.getElementById(`page-${page}`);
+    if (!pageEl) return;
+    pageEl.classList.add('active');
+
+    /* Update active nav item */
+    const navBtn = document.querySelector(`.nav-item[data-page="${page}"]`);
+    if (navBtn) navBtn.classList.add('active');
+
+    /* Topbar mode */
+    const isRoot = ['dashboard', 'my-tontines', 'create-tontine', 'join-tontine', 'profile', 'auth'].includes(page);
+    const topbarLogo = document.getElementById('topbar-logo');
+    const topbarTitle = document.getElementById('topbar-title');
+    const topbarChatInfo = document.getElementById('topbar-chat-info');
+    const btnBack = document.getElementById('btn-back');
+    const topbar = document.getElementById('topbar');
+    const bottomNav = document.getElementById('bottom-nav');
+
+    if (page === 'auth') {
+      topbar.style.display = 'none';
+      bottomNav.style.display = 'none';
+    } else if (page === 'chat-thread' || page === 'chat') {
+      /* Mode plein écran pour toute la zone messagerie (liste des
+         conversations ET fil de discussion) : on masque la navbar du bas,
+         comme WhatsApp — elle n'a pas sa place ici. */
+      topbar.style.display = 'flex';
+      bottomNav.style.display = 'none';
+      document.getElementById('app').classList.add('chat-open');
+      /* Si on revient sur cette page via l'historique (précédente conversation
+         encore affichée), on relance le polling s'il n'est pas déjà actif */
+      if (page === 'chat-thread' && typeof Chat !== 'undefined' && Chat.currentConversationId && !Chat.pollTimer) {
+        Chat.fetchMessages(false);
+        Chat.pollTimer = setInterval(() => {
+          Chat.fetchMessages(false);
+          if (Chat._offlineQueue.length) Chat.flushOfflineQueue();
+        }, 3000);
+      }
+    } else {
+      topbar.style.display = 'flex';
+      bottomNav.style.display = 'flex';
+      document.getElementById('app').classList.remove('chat-open');
+    }
+
+    if (page === 'chat-thread') {
+      /* En conversation, la topbar affiche l'avatar + le nom du contact,
+         comme dans WhatsApp, plutôt qu'un simple titre texte */
+      topbarLogo.classList.add('hidden');
+      topbarTitle.classList.add('hidden');
+      topbarChatInfo?.classList.remove('hidden');
+      btnBack.style.display = 'flex';
+      if (App.currentPage !== page) this.history.push({ page: App.currentPage, title: App.currentTitle });
+    } else if (isRoot && page !== 'auth') {
+      topbarLogo.classList.remove('hidden');
+      topbarTitle.classList.add('hidden');
+      topbarChatInfo?.classList.add('hidden');
+      btnBack.style.display = 'none';
+    } else if (page !== 'auth') {
+      topbarLogo.classList.add('hidden');
+      topbarTitle.classList.remove('hidden');
+      topbarTitle.textContent = title;
+      topbarChatInfo?.classList.add('hidden');
+      btnBack.style.display = 'flex';
+      if (App.currentPage !== page) this.history.push({ page: App.currentPage, title: App.currentTitle });
+    }
+
+    App.currentPage = page;
+    App.currentTitle = title;
+    window.scrollTo(0, 0);
+    this.closeMenu();
+
+    /* Mémorise la page courante pour la restaurer après un F5 (voir RouteMemory) */
+    if (page !== 'auth') RouteMemory.save(page, title);
+
+    /* Synchronise avec l'historique RÉEL du navigateur : sans ceci, le bouton
+       retour physique/geste (Android) ou la souris arrière du navigateur ne
+       déclenchent jamais notre navigation interne — ils finissent par quitter
+       carrément l'application au lieu de revenir à l'écran précédent. On ne
+       pousse pas une nouvelle entrée quand ce go() vient lui-même d'un popstate,
+       sinon chaque retour recréerait une entrée "avant" et casserait la pile. */
+    if (page !== 'auth' && !fromPopstate) {
+      try { history.pushState({ tfNav: true }, '', location.href); } catch {}
+    }
+  },
+
+  back(fromPopstate = false) {
+    const prev = this.history.pop();
+    if (prev) this.go(prev.page, prev.title, fromPopstate);
+    else this.go('dashboard', '', fromPopstate);
+  },
+
+  closeMenu() {
+    document.getElementById('dropdown-menu').classList.add('hidden');
+    document.getElementById('dropdown-overlay').classList.add('hidden');
+  }
+};
+
+/* ═══════════════════════════════ AUTH ═══════════════════════════════ */
+const Auth = {
+  init() {
+    /* Tab switching */
+    document.querySelectorAll('.auth-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`form-${tab.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    /* Login */
+    document.getElementById('btn-login').addEventListener('click', async () => {
+      const email = document.getElementById('login-email').value.trim();
+      const pass  = document.getElementById('login-password').value;
+      if (!email || !pass) { Toast.show('Veuillez remplir tous les champs', 'error'); return; }
+      UI.setLoading('btn-login', true, 'Connexion...');
+      const res = await API.request('login', { email, password: pass });
+      UI.setLoading('btn-login', false, 'Se connecter');
+      if (res.success) { Auth.onLogin(res); } else { Toast.show(res.message || 'Identifiants incorrects', 'error'); }
+    });
+
+    /* Register */
+    document.getElementById('btn-register').addEventListener('click', async () => {
+      const firstname = document.getElementById('reg-firstname').value.trim();
+      const lastname  = document.getElementById('reg-lastname').value.trim();
+      const email     = document.getElementById('reg-email').value.trim();
+      const phone     = document.getElementById('reg-phone').value.trim();
+      const password  = document.getElementById('reg-password').value;
+      if (!firstname || !lastname || !email || !password) { Toast.show('Veuillez remplir les champs obligatoires', 'error'); return; }
+      if (password.length < 8) { Toast.show('Le mot de passe doit contenir au moins 8 caractères', 'error'); return; }
+      UI.setLoading('btn-register', true, 'Création...');
+      const res = await API.request('register', { firstname, lastname, email, phone, password });
+      UI.setLoading('btn-register', false, 'Créer mon compte');
+      if (res.success) { Auth.onLogin(res); } else { Toast.show(res.message || 'Erreur lors de l\'inscription', 'error'); }
+    });
+
+    /* Demo */
+    document.getElementById('btn-demo').addEventListener('click', async () => {
+      UI.setLoading('btn-demo', true, 'Chargement...');
+      const res = await API.request('demo');
+      UI.setLoading('btn-demo', false, 'Essayer en démo');
+      if (res.success) { Auth.onLogin(res); }
+    });
+
+    /* Password strength meter */
+    document.getElementById('reg-password').addEventListener('input', (e) => {
+      const v = e.target.value;
+      let level = 0;
+      if (v.length >= 8) level++;
+      if (/[A-Z]/.test(v)) level++;
+      if (/[0-9]/.test(v)) level++;
+      if (/[^A-Za-z0-9]/.test(v)) level++;
+      const bar = document.getElementById('password-strength');
+      bar.dataset.level = level;
+    });
+
+    /* Eye toggle */
+    document.querySelectorAll('.btn-eye').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = document.getElementById(btn.dataset.target);
+        input.type = input.type === 'password' ? 'text' : 'password';
+      });
+    });
+  },
+
+  onLogin(res) {
+    /* Effacer toute ancienne session avant d'en démarrer une nouvelle */
+    Storage.remove('user');
+    Storage.remove('token');
+    RouteMemory.clear();
+    App.currentUser = null;
+
+    /* Le serveur renvoie { success, data: { user, token }, message } */
+    const user  = res.data?.user  ?? res.user;
+    const token = res.data?.token ?? res.token;
+
+    App.currentUser = user;
+    App.token = token;
+    Storage.save('user', user);
+    Storage.save('token', token);
+
+    /* Gestion de la bannière démo */
+    const banner = document.getElementById('demo-banner');
+    if (banner) {
+      if (App.isDemoMode()) {
+        banner.classList.remove('hidden');
+      } else {
+        banner.classList.add('hidden');
+      }
+    }
+
+    /* Petit délai pour s'assurer que le DOM est prêt */
+    setTimeout(() => {
+      UI.updateUserInfo();
+    }, 100);
+
+    Dashboard.load();
+    Chat.startBackgroundRefresh();
+    Nav.go('dashboard');
+    Toast.show(`Bienvenue, ${user?.firstname || user?.email || ''} ! 👋`, 'success');
+  },
+
+  exitDemoToAuth(tab = 'login') {
+    App.currentUser = null;
+    App.token = null;
+    Storage.remove('user');
+    Storage.remove('token');
+    RouteMemory.clear();
+    Nav.history = [];
+    document.getElementById('demo-banner')?.classList.add('hidden');
+    Nav.go('auth');
+    document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+    const targetTab = document.querySelector(`.auth-tab[data-tab="${tab}"]`);
+    const targetForm = document.getElementById(`form-${tab}`);
+    if (targetTab) targetTab.classList.add('active');
+    if (targetForm) targetForm.classList.add('active');
+  },
+
+  logout() {
+    if (!window.confirm('Se déconnecter de Tontines Facile ?')) return;
+    App.currentUser = null;
+    App.token = null;
+    Storage.remove('user');
+    Storage.remove('token');
+    RouteMemory.clear();
+    Nav.history = [];
+    document.getElementById('demo-banner')?.classList.add('hidden');
+    /* Forcer le rechargement complet pour nettoyer l'état */
+    window.location.href = '/';
+  }
+};
+
+/* ═══════════════════════════════ DASHBOARD ═══════════════════════════════ */
+const Dashboard = {
+  async load() {
+    /* Skeleton pendant le chargement — évite l'écran vide/figé le temps du fetch */
+    const listEl = document.getElementById('dashboard-tontines-list');
+    const actElInit = document.getElementById('dashboard-activity-list');
+    const myTontinesListEl = document.getElementById('my-tontines-list');
+    const statIds = ['stat-active', 'stat-savings', 'stat-next', 'stat-members'];
+    statIds.forEach(id => document.getElementById(id)?.classList.add('text-skeleton'));
+    if (listEl) listEl.innerHTML = UI.skeletonCards(2);
+    if (actElInit) actElInit.innerHTML = UI.skeletonRows(3);
+    if (myTontinesListEl && !MyTontines.data.length) myTontinesListEl.innerHTML = UI.skeletonCards(3);
+
+    const res = await API.request('getTontines');
+    if (!res.success) { statIds.forEach(id => document.getElementById(id)?.classList.remove('text-skeleton')); return; }
+    const tontines = res.data;
+
+    /* Stats */
+    const active = tontines.filter(t => t.status === 'active').length;
+    const savings = tontines.reduce((sum, t) => sum + (parseFloat(t.pot) || parseFloat(t.amount) || 0), 0);
+    const members = tontines.reduce((sum, t) => sum + (t.currentMembers || 0), 0);
+    const rawNextDate = tontines[0]?.nextPaymentDate;
+    let formattedNextDate = '—';
+    if (rawNextDate) {
+      const nd = new Date(rawNextDate);
+      formattedNextDate = isNaN(nd.getTime()) ? rawNextDate : nd.toLocaleDateString('fr-FR');
+    }
+
+    document.getElementById('stat-active').textContent = active;
+    document.getElementById('stat-savings').textContent = UI.formatAmount(savings);
+    document.getElementById('stat-next').textContent = formattedNextDate;
+    document.getElementById('stat-members').textContent = members;
+    statIds.forEach(id => document.getElementById(id)?.classList.remove('text-skeleton'));
+
+    /* Tontines list (max 3) */
+    const list = document.getElementById('dashboard-tontines-list');
+    list.innerHTML = '';
+    if (!tontines.length) {
+      list.innerHTML = UI.emptyState('Aucune tontine', 'create-tontine', 'Créer une tontine');
+      return;
+    }
+    tontines.slice(0, 3).forEach(t => list.appendChild(UI.tontineCard(t)));
+
+    /* Recent activity */
+    const logRes = await API.request('getGlobalLog');
+    const actEl = document.getElementById('dashboard-activity-list');
+    actEl.innerHTML = '';
+    const logEntries = Array.isArray(logRes.data) ? logRes.data : (logRes.data?.items || []);
+    if (logRes.success && logEntries.length) {
+      logEntries.slice(0, 4).forEach(entry => actEl.appendChild(UI.activityItem(entry)));
+    } else {
+      actEl.innerHTML = '<div class="empty-state small"><p>Aucune activité récente</p></div>';
+    }
+
+    /* My Tontines list */
+    MyTontines.render(tontines);
+  }
+};
+
+/* ═══════════════════════════════ MY TONTINES ═══════════════════════════════ */
+const MyTontines = {
+  data: [],
+
+  render(tontines) {
+    this.data = tontines;
+    const list = document.getElementById('my-tontines-list');
+    list.innerHTML = '';
+    if (!tontines.length) {
+      list.innerHTML = UI.emptyState('Vous n\'avez pas encore de tontines', 'create-tontine', 'Créer ma première tontine');
+      return;
+    }
+    tontines.forEach(t => list.appendChild(UI.tontineCard(t)));
+
+    /* Filter chips */
+    document.querySelectorAll('#page-my-tontines .chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('#page-my-tontines .chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        const filter = chip.dataset.filter;
+        const filtered = filter === 'all' ? tontines :
+          filter === 'admin' ? tontines.filter(t => t.userRole === 'admin') :
+          filter === 'member' ? tontines.filter(t => t.userRole === 'member') :
+          tontines.filter(t => t.status === 'pending');
+        list.innerHTML = '';
+        filtered.forEach(t => list.appendChild(UI.tontineCard(t)));
+      });
+    });
+
+    /* Search */
+    document.getElementById('search-tontines').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      const filtered = tontines.filter(t => t.name.toLowerCase().includes(q));
+      list.innerHTML = '';
+      filtered.forEach(t => list.appendChild(UI.tontineCard(t)));
+    });
+  }
+};
+
+/* ═══════════════════════════════ TONTINE DETAIL ═══════════════════════════════ */
+const TontineDetail = {
+  open(tontine) {
+    App.currentTontine = tontine;
+    Nav.go('tontine-detail', tontine.name);
+    RouteMemory.save('tontine-detail', tontine.name, { tontineId: tontine.id });
+    this.render(tontine);
+  },
+
+  /* Ouvre une tontine à partir de son seul ID (ex: depuis une notification) */
+  async openById(tontineId, focusPendingRequests = false, highlightRequestId = null) {
+    const res = await API.request('getTontine', { tontineId });
+    if (!res.success) { Toast.show(res.message || 'Tontine introuvable', 'error'); return; }
+    this.open(res.data);
+    if (focusPendingRequests && res.data.userRole === 'admin') {
+      this.loadPendingRequests(tontineId, highlightRequestId);
+    }
+  },
+
+  /* Recharge les données et ré-affiche la page SANS empiler l'historique
+     de navigation — à utiliser après une action effectuée depuis la page
+     de détail elle-même (paiement, rôle, membre...), jamais pour y entrer. */
+  async refresh(tontineId) {
+    const res = await API.request('getTontine', { tontineId });
+    if (!res.success) { Toast.show(res.message || 'Tontine introuvable', 'error'); return; }
+    App.currentTontine = res.data;
+    this.render(res.data);
+  },
+
+  async loadPendingRequests(tontineId, highlightRequestId = null) {
+    const card = document.getElementById('detail-pending-requests-card');
+    const list = document.getElementById('detail-pending-requests-list');
+    if (!card || !list) return;
+    list.innerHTML = UI.skeletonRows(2);
+    card.style.display = 'block';
+    const res = await API.request('getPendingMembers', { tontineId });
+    if (!res.success || !res.data.length) { card.style.display = 'none'; return; }
+    list.innerHTML = '';
+    res.data.forEach(m => {
+      const div = document.createElement('div');
+      div.className = 'member-item';
+      div.id = `pending-request-${m.id}`;
+      div.innerHTML = `
+        <div class="avatar-sm">${m.initials || m.name.slice(0,2).toUpperCase()}</div>
+        <div class="member-info">
+          <p class="member-name">${UI.escapeHtml(m.name)}</p>
+          <p class="member-role">Demande du ${m.requested_at}</p>
+        </div>
+        <div class="contact-item-actions">
+          <button class="btn-icon" title="Accepter" style="color:var(--color-primary)" onclick="TontineDetail.respondPending(${tontineId},${m.id},'approve',this)">
+            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <button class="btn-icon" title="Refuser" style="color:var(--color-red)" onclick="TontineDetail.respondPending(${tontineId},${m.id},'reject',this)">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      `;
+      list.appendChild(div);
+    });
+
+    /* Si on vient d'une notification précise, on va droit à la demande
+       concernée plutôt que de laisser l'utilisateur la chercher dans la liste */
+    const target = highlightRequestId ? document.getElementById(`pending-request-${highlightRequestId}`) : null;
+    if (target) {
+      target.classList.add('request-highlight');
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => target.classList.remove('request-highlight'), 2600);
+    } else {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  },
+
+  async respondPending(tontineId, memberId, action, btnEl = null) {
+    if (App.checkDemoRestriction(action === 'approve' ? 'approuver un membre' : 'refuser un membre')) return;
+    /* Petit état de chargement sur le bouton cliqué, pour un retour immédiat */
+    const row = btnEl?.closest('.contact-item-actions');
+    if (row) row.querySelectorAll('button').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+    if (btnEl) btnEl.innerHTML = '<span class="spinner" style="width:16px;height:16px;border-width:2px"></span>';
+
+    const res = await API.request('approveMember', { tontineId, memberId, action });
+    if (res.success) {
+      Toast.show(action === 'approve' ? 'Membre accepté !' : 'Demande refusée', 'success');
+      this.loadPendingRequests(tontineId);
+      this.refresh(tontineId); /* rafraîchit le nombre de membres affiché */
+    } else {
+      Toast.show(res.message || 'Erreur', 'error');
+      this.loadPendingRequests(tontineId); /* réinitialise les boutons (retire spinner/disabled) */
+    }
+  },
+
+  render(t) {
+    /* Header */
+    document.getElementById('detail-name').textContent = t.name;
+    const detailIcon = document.getElementById('detail-icon');
+    if (detailIcon) {
+      if (t.icon) {
+        detailIcon.classList.add('has-photo');
+        detailIcon.style.backgroundImage = `url('${t.icon}')`;
+      } else {
+        detailIcon.classList.remove('has-photo');
+        detailIcon.style.backgroundImage = '';
+      }
+    }
+    document.getElementById('detail-desc').textContent = t.description || '';
+    document.getElementById('detail-amount').textContent = UI.formatAmount(t.amount);
+    document.getElementById('detail-freq').textContent = UI.freqLabel(t.frequency);
+    document.getElementById('detail-members-count').textContent = `${t.currentMembers}/${t.maxMembers}`;
+    document.getElementById('detail-pot').textContent = UI.formatAmount(t.pot || 0);
+
+    const badge = document.getElementById('detail-badge');
+    badge.className = `badge ${t.badge}`;
+    badge.textContent = t.badgeText;
+
+    /* Admin actions */
+    const adminActions = document.getElementById('detail-admin-actions');
+    const chatBtn = `
+      <button class="btn-icon" title="Chat du groupe" onclick="Chat.openTontineChat(${t.id})">
+        <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>`;
+    adminActions.innerHTML = chatBtn + (t.userRole === 'admin' ? `
+      <button class="btn-icon" title="Paramètres de la tontine" onclick="TontineDetail.openSettings()">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+      </button>` : '');
+
+    /* Overview tab */
+    const progress = t.totalTours ? (t.currentTour / t.totalTours) * 100 : 0;
+    document.getElementById('detail-tour').textContent = `Tour ${t.currentTour}/${t.totalTours}`;
+    document.getElementById('detail-progress').style.width = `${progress}%`;
+    document.getElementById('detail-next-date').textContent = t.nextPaymentDate || '—';
+    document.getElementById('detail-next-amount').textContent = UI.formatAmount(t.amount);
+    document.getElementById('bc-name').textContent = t.nextBeneficiary || '—';
+    const bcA = document.getElementById('bc-avatar');
+    bcA.textContent = (t.nextBeneficiary || '').split(' ').map(w => w[0]).join('').slice(0,2);
+
+    const nextTourBtn = document.getElementById('btn-next-tour');
+    if (nextTourBtn) nextTourBtn.style.display = (t.userRole === 'admin' && t.status !== 'closed') ? 'block' : 'none';
+
+    /* Dettes en cours */
+    const debtsCard = document.getElementById('detail-debts-card');
+    const debtsList = document.getElementById('detail-debts-list');
+    const membersWithDebt = (t.members || []).filter(m => Number(m.debt) > 0);
+    if (debtsCard && debtsList) {
+      if (!membersWithDebt.length) {
+        debtsCard.style.display = 'none';
+      } else {
+        debtsCard.style.display = 'block';
+        debtsList.innerHTML = membersWithDebt.map(m => `
+          <div class="debt-row">
+            <span>${UI.escapeHtml(m.name)}</span>
+            <span class="debt-amount">${UI.formatAmount(m.debt)}</span>
+            ${t.userRole === 'admin' ? `<button class="btn-ghost btn-sm" onclick="TontineDetail.settleDebt(${m.id})">Marquer réglée</button>` : ''}
+          </div>
+        `).join('');
+      }
+    }
+
+    /* Members tab */
+    const membersList = document.getElementById('detail-members-list');
+    membersList.innerHTML = '';
+    this._proofByMemberId = {};
+    const membersSearchBar = document.getElementById('members-search-bar');
+    if (membersSearchBar) membersSearchBar.style.display = (t.members || []).length > 6 ? 'flex' : 'none';
+    const membersSearchInput = document.getElementById('search-members');
+    if (membersSearchInput) membersSearchInput.value = '';
+    (t.members || []).forEach(m => {
+      if (m.paymentProof) this._proofByMemberId[m.id] = { image: m.paymentProof, name: m.name };
+      const div = document.createElement('div');
+      div.className = 'member-item';
+      div.id = `member-row-${m.id}`;
+      div.dataset.searchName = (m.name || '').toLowerCase();
+      const photo = m.avatar_photo || m.avatarPhoto;
+      const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
+      const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
+      const isSelf = String(m.id) === String(App.currentUser?.id);
+      const isAdminViewer = t.userRole === 'admin';
+
+      /* Statut de paiement */
+      let statusHtml;
+      if (m.paid) statusHtml = `<span class="member-status member-paid">✓ Payé</span>`;
+      else if (m.paymentPending) statusHtml = `<span class="member-status member-review">🕒 À valider</span>`;
+      else statusHtml = `<span class="member-status member-pending">⏳ En attente</span>`;
+      if (Number(m.debt) > 0) statusHtml += `<span class="member-status member-debt">⚠️ Doit ${UI.formatAmount(m.debt)}</span>`;
+
+      /* Bouton de paiement (le membre lui-même, uniquement si rien n'est en cours) */
+      const payBtn = (isSelf && !m.paid && !m.paymentPending)
+        ? `<button class="btn-icon" style="color:var(--color-primary)" title="Payer via Mobile Money" onclick="TontineDetail.payMobileMoney(${t.id})"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><line x1="11" y1="18" x2="13" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>`
+        : '';
+
+      /* Actions admin sur le paiement : valider directement, ou approuver/refuser une déclaration */
+      let paymentAdminBtns = '';
+      if (isAdminViewer && !m.paid) {
+        if (m.paymentPending) {
+          const proofBtn = m.paymentProof
+            ? `<button class="btn-icon proof-thumb-btn" title="Voir la capture d'écran" onclick="TontineDetail.viewProof(${m.id})" style="background-image:url('${m.paymentProof}')"></button>`
+            : '';
+          paymentAdminBtns = `
+            ${proofBtn}
+            <button class="btn-icon" title="Confirmer la réception" style="color:var(--color-primary)" onclick="TontineDetail.recordPayment(${m.id})"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>
+            <button class="btn-icon" title="Refuser (introuvable)" style="color:var(--color-red)" onclick="TontineDetail.rejectPayment(${m.id})"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>`;
+        } else {
+          paymentAdminBtns = `<button class="btn-icon" title="Confirmer le paiement" style="color:var(--color-primary)" onclick="TontineDetail.recordPayment(${m.id})"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>`;
+        }
+      }
+
+      /* Gestion du membre : nommer/retirer admin, retirer de la tontine (jamais sur soi-même) */
+      let manageBtns = '';
+      if (isAdminViewer && !isSelf) {
+        manageBtns = m.role === 'admin'
+          ? `<button class="btn-icon" title="Retirer les droits admin" onclick="TontineDetail.updateMemberRole(${m.id},'member')"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>`
+          : `<button class="btn-icon" title="Nommer administrateur" onclick="TontineDetail.updateMemberRole(${m.id},'admin')"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 6.9H22l-6 4.6 2.4 7-6.4-4.6L5.6 20.5l2.4-7-6-4.6h7.6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg></button>`;
+        manageBtns += `<button class="btn-icon" title="Retirer de la tontine" style="color:var(--color-red)" onclick="TontineDetail.removeMember(${m.id})"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg></button>`;
+      }
+
+      div.innerHTML = `
+        <div class="${avatarClass}"${avatarStyle}>${photo ? '' : (m.initials || m.name.slice(0,2).toUpperCase())}</div>
+        <div class="member-info">
+          <p class="member-name">${UI.escapeHtml(m.name)}${m.role === 'admin' ? ' <span class="admin-tag">Admin</span>' : ''}</p>
+          <p class="member-role">Tour #${m.tour_order ?? m.order ?? '—'}</p>
+        </div>
+        ${statusHtml}
+        ${payBtn}
+        ${paymentAdminBtns}
+        ${manageBtns}
+      `;
+      membersList.appendChild(div);
+    });
+
+    /* Payment matrix */
+    this.renderMatrix(t);
+
+    /* Log tab */
+    const logList = document.getElementById('detail-log-list');
+    logList.innerHTML = '';
+    (t.log || []).forEach(entry => {
+      const div = document.createElement('div');
+      div.className = `log-item ${entry.type}`;
+      div.innerHTML = `
+        <p class="log-action">${entry.action}</p>
+        <p class="log-detail">${entry.detail}</p>
+        <div class="log-meta"><span class="log-user">@${entry.user}</span><span class="log-time">${entry.time}</span></div>
+      `;
+      logList.appendChild(div);
+    });
+
+    if (!t.log?.length) logList.innerHTML = '<div class="empty-state small"><p>Aucune entrée dans le journal</p></div>';
+
+    /* Tab switching */
+    document.querySelectorAll('#page-tontine-detail .tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('#page-tontine-detail .tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('#page-tontine-detail .tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    /* Invite button — navigue directement vers la page invite avec le code
+       de CETTE tontine déjà récupéré et affiché, sans que l'utilisateur
+       ait besoin de la sélectionner à nouveau dans la liste */
+    document.getElementById('btn-invite-member').onclick = () => {
+      Nav.go('invite', 'Inviter');
+      Invite.preselect(t);
+    };
+
+    /* Reset to first tab */
+    document.querySelector('#page-tontine-detail .tab')?.click();
+  },
+
+  renderMatrix(t) {
+    const matrix = document.getElementById('detail-payment-matrix');
+    if (!t.members?.length) { matrix.innerHTML = ''; return; }
+    const tours = Math.min(t.currentTour + 1, 6); // show current + next
+    let html = '<table><thead><tr><th>Membre</th>';
+    for (let i = 1; i <= tours; i++) html += `<th>T${i}</th>`;
+    html += '</tr></thead><tbody>';
+    t.members.forEach(m => {
+      html += `<tr><td class="pm-name" title="${UI.escapeHtml(m.name)}">${UI.escapeHtml(m.name.split(' ')[0])}</td>`;
+      for (let i = 1; i <= tours; i++) {
+        const paid = i < t.currentTour ? '✅' : (i === t.currentTour && m.paid ? '✅' : (i === t.currentTour ? '⏳' : '—'));
+        html += `<td class="pm-cell">${paid}</td>`;
+      }
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    matrix.innerHTML = html;
+  },
+
+  /* Met en évidence brièvement la ligne d'un membre après un changement
+     (paiement confirmé/refusé...) pour que le changement se voit clairement,
+     plutôt que de re-render silencieusement toute la liste. */
+  _flashMemberRow(memberId) {
+    requestAnimationFrame(() => {
+      const row = document.getElementById(`member-row-${memberId}`);
+      if (!row) return;
+      row.classList.add('status-flash');
+      setTimeout(() => row.classList.remove('status-flash'), 1500);
+    });
+  },
+
+  async recordPayment(memberId) {
+    if (App.checkDemoRestriction('confirmer un paiement')) return;
+    const member = App.currentTontine.members.find(m => m.id === memberId);
+    const memberName = member?.name || 'ce membre';
+    const debt = Number(member?.debt) || 0;
+
+    let clearDebt = false;
+    if (debt > 0) {
+      /* Le membre a une dette en cours : on propose de la régler en même
+         temps (ex: reçue en main propre), sans l'imposer. */
+      const confirmed = await new Promise(resolve => {
+        Modal.open(`Confirmer le paiement de ${memberName} ?`, `
+          <p style="font-size:var(--fs-sm);color:var(--color-text-2);margin-bottom:12px">Cette action sera enregistrée dans le journal de la tontine et visible par tous les membres.</p>
+          <label style="display:flex;align-items:center;gap:8px;font-size:var(--fs-sm);cursor:pointer">
+            <input type="checkbox" id="clear-debt-checkbox" />
+            Régler aussi sa dette existante de ${UI.formatAmount(debt)}
+          </label>
+        `, `
+          <button class="btn-primary btn-full" id="modal-record-confirm-btn">Confirmer le paiement</button>
+          <button class="btn-ghost btn-full" onclick="Modal.close()">Annuler</button>
+        `);
+        document.getElementById('modal-record-confirm-btn').addEventListener('click', () => {
+          clearDebt = document.getElementById('clear-debt-checkbox')?.checked || false;
+          Modal.close();
+          resolve(true);
+        });
+        document.getElementById('modal-overlay').addEventListener('click', (e) => {
+          if (e.target === document.getElementById('modal-overlay')) { Modal.close(); resolve(false); }
+        }, { once: true });
+      });
+      if (!confirmed) return;
+    } else {
+      const confirmed = await Modal.confirm(`Confirmer le paiement de ${memberName} ?`, `Cette action sera enregistrée dans le journal de la tontine et visible par tous les membres.`, 'Confirmer le paiement');
+      if (!confirmed) return;
+    }
+
+    const res = await API.request('recordPayment', { tontineId: App.currentTontine.id, memberId, clearDebt });
+    if (res.success) {
+      Toast.show(`Paiement de ${memberName} enregistré` + (res.data?.clearedDebt ? ` — dette de ${UI.formatAmount(res.data.clearedDebt)} réglée` : ''), 'success');
+      /* Update local state */
+      if (member) {
+        member.paid = true;
+        if (clearDebt) member.debt = 0;
+      }
+      this.render(App.currentTontine);
+      this._flashMemberRow(memberId);
+    }
+  },
+
+  /* Marque manuellement la dette d'un membre comme réglée (ex: en main propre) */
+  async settleDebt(memberId) {
+    if (App.checkDemoRestriction('marquer une dette comme réglée')) return;
+    const member = App.currentTontine.members.find(m => m.id === memberId);
+    if (!member || !(Number(member.debt) > 0)) return;
+    const confirmed = await Modal.confirm(
+      `Marquer la dette de ${member.name} comme réglée ?`,
+      `Montant : ${UI.formatAmount(member.debt)}. À utiliser si la somme a été remise autrement (en main propre, etc.).`,
+      'Marquer comme réglée'
+    );
+    if (!confirmed) return;
+    const res = await API.request('settleDebt', { tontineId: App.currentTontine.id, memberId });
+    if (res.success) {
+      Toast.show('Dette réglée.', 'success');
+      member.debt = 0;
+      this.render(App.currentTontine);
+    } else {
+      Toast.show(res.message || 'Erreur', 'error');
+    }
+  },
+
+  /* Fait avancer la tontine au tour suivant : verse la cagnotte au
+     bénéficiaire actuel, enregistre une dette pour qui n'a pas payé, et
+     prévient l'admin avant de continuer s'il reste des impayés. */
+  async advanceTour(force = false) {
+    if (App.checkDemoRestriction('passer au tour suivant')) return;
+    const t = App.currentTontine;
+    const res = await API.request('nextTour', { tontineId: t.id, force });
+    if (!res.success) { Toast.show(res.message || 'Erreur', 'error'); return; }
+
+    if (res.data?.needsConfirmation) {
+      const names = res.data.unpaidMembers.map(u => u.name).join(', ');
+      const confirmed = await Modal.confirm(
+        'Des membres n\'ont pas payé',
+        `${names} n'${res.data.unpaidMembers.length > 1 ? 'ont' : 'a'} pas encore payé ce tour. Si vous continuez, une dette de ${UI.formatAmount(res.data.amount)} sera enregistrée pour chacun. Continuer quand même ?`,
+        'Continuer et enregistrer les dettes'
+      );
+      if (!confirmed) return;
+      return this.advanceTour(true);
+    }
+
+    Toast.show(res.message || 'Tour suivant lancé !', 'success');
+    this.refresh(t.id);
+  },
+
+  /* Affiche comment payer directement l'admin (numéro Mobile Money personnel),
+     puis laisse le membre déclarer son paiement — l'app ne touche jamais l'argent. */
+  payMobileMoney(tontineId) {
+    if (App.checkDemoRestriction('effectuer un paiement Mobile Money')) return;
+    const t = App.currentTontine;
+    if (!t.momoNumber || !t.momoOperator) {
+      Toast.show("L'administrateur n'a pas encore renseigné de numéro Mobile Money pour cette tontine.", 'warning');
+      return;
+    }
+    const opData = {
+      mtn:    { label: 'MTN Mobile Money', ussd: '*126#', emoji: '🟡' },
+      orange: { label: 'Orange Money',     ussd: '#150#', emoji: '🟠' },
+      wave:   { label: 'Wave',             ussd: '',      emoji: '🔵' },
+      moov:   { label: 'Moov Money',       ussd: '*155#', emoji: '🔴' },
+      mpesa:  { label: 'M-Pesa',           ussd: '*334#', emoji: '🟢' },
+      airtel: { label: 'Airtel Money',     ussd: '*166#', emoji: '🔴' },
+      free:   { label: 'Free Money',       ussd: '#150#', emoji: '🔴' },
+    };
+    const opInfo = opData[t.momoOperator] || { label: t.momoOperator || 'Mobile Money', ussd: '', emoji: '💳' };
+    const opLabel = opInfo.label;
+    const ussdActionHtml = opInfo.ussd
+      ? `<a href="tel:${encodeURIComponent(opInfo.ussd)}" class="btn-primary btn-full" style="text-decoration:none;display:block;text-align:center;margin-top:6px">📞 Composer ${opInfo.ussd}</a>`
+      : `<p style="font-size:var(--fs-sm);font-weight:600;color:var(--color-primary);margin-top:6px">Ouvrez votre application ${opLabel} pour effectuer le transfert.</p>`;
+    const formattedNumber = t.momoNumber.replace(/(\d{3})(?=\d)/g, '$1 ').trim();
+
+    Modal.open(`Payer via ${opLabel}`, `
+      <div class="form-group">
+        <p style="font-size:var(--fs-sm);color:var(--color-text-2);margin-bottom:12px">
+          Cette tontine ne passe par aucun intermédiaire : votre cotisation part directement de votre téléphone vers celui de l'administrateur.
+        </p>
+        <label class="form-label">1. Numéro à créditer (${opLabel})</label>
+        <div class="invite-code-box">
+          <span>${formattedNumber}</span>
+          <button class="btn-icon" onclick="UI.copyText('${t.momoNumber}')">
+            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">2. Montant à envoyer</label>
+        <p style="font-size:var(--fs-lg);font-weight:700;color:var(--color-primary)">${UI.formatAmount(t.amount)}</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label">3. Envoi via ${opLabel}</label>
+        ${ussdActionHtml}
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-top:6px">
+          Choisissez "Transfert d'argent", entrez le numéro et le montant ci-dessus, puis validez avec votre code secret.
+        </p>
+      </div>
+      <div class="form-group">
+        <label class="form-label">4. Capture d'écran du paiement <span style="color:var(--color-text-3);font-weight:400">(recommandé)</span></label>
+        <input type="file" id="payment-proof-input" accept="image/*" style="display:none" />
+        <div id="payment-proof-zone" class="proof-upload-zone">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 16l4.586-4.586a2 2 0 0 1 2.828 0L16 16M14 14l1.586-1.586a2 2 0 0 1 2.828 0L20 14M4 8h.01M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          <span>Ajouter une capture d'écran</span>
+        </div>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-top:6px">
+          Ça aide l'administrateur à retrouver votre transaction plus rapidement — mais ce n'est pas obligatoire.
+        </p>
+      </div>
+      <div class="form-group">
+        <button class="btn-secondary btn-full" id="btn-confirm-momo-paid">✓ J'ai envoyé le paiement</button>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-top:6px;text-align:center">
+          L'administrateur devra confirmer la réception avant que votre cotisation soit validée.
+        </p>
+      </div>
+    `);
+
+    /* Sélection + compression de la capture d'écran (optionnelle) */
+    let proofImageData = null;
+    const proofInput = document.getElementById('payment-proof-input');
+    const proofZone = document.getElementById('payment-proof-zone');
+    proofZone.addEventListener('click', () => proofInput.click());
+    proofInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      proofZone.innerHTML = '<span class="spinner" style="width:18px;height:18px;border-width:2px"></span> Traitement de l\'image...';
+      try {
+        proofImageData = await UI.resizeImageToBase64(file, 1000, 0.7);
+        proofZone.classList.add('has-image');
+        proofZone.innerHTML = `
+          <img src="${proofImageData}" alt="Capture du paiement" />
+          <button type="button" class="proof-remove" aria-label="Retirer">✕</button>
+        `;
+        proofZone.querySelector('.proof-remove').addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          proofImageData = null;
+          proofInput.value = '';
+          proofZone.classList.remove('has-image');
+          proofZone.innerHTML = `
+            <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 16l4.586-4.586a2 2 0 0 1 2.828 0L16 16M14 14l1.586-1.586a2 2 0 0 1 2.828 0L20 14M4 8h.01M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+            <span>Ajouter une capture d'écran</span>
+          `;
+        });
+      } catch {
+        Toast.show('Image illisible, réessayez.', 'error');
+      }
+    });
+
+    document.getElementById('btn-confirm-momo-paid').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="width:18px;height:18px;border-width:2px;margin:0 auto"></span>';
+      const res = await API.request('declarePayment', { tontineId: t.id, proofImage: proofImageData });
+      Modal.close();
+      if (res.success) {
+        Toast.show(res.message || 'Déclaration envoyée ! En attente de validation par l\'administrateur.', 'success');
+        await this.refresh(t.id);
+        if (App.currentUser?.id) this._flashMemberRow(App.currentUser.id);
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
+      }
+    });
+  },
+
+  viewProof(memberId) {
+    const entry = this._proofByMemberId?.[memberId];
+    if (!entry) return;
+    Modal.open(`Capture de ${entry.name}`, `
+      <div class="proof-viewer">
+        <img src="${entry.image}" alt="Capture d'écran du paiement" />
+      </div>
+    `);
+  },
+
+  async rejectPayment(memberId) {
+    if (App.checkDemoRestriction('rejeter une déclaration de paiement')) return;
+    const member = App.currentTontine.members.find(m => m.id === memberId);
+    const memberName = member?.name || 'ce membre';
+    const confirmed = await Modal.confirm(
+      `Refuser la déclaration de ${memberName} ?`,
+      "À utiliser si vous n'avez pas retrouvé ce paiement sur votre compte Mobile Money. Le membre pourra redéclarer.",
+      'Refuser'
+    );
+    if (!confirmed) return;
+    const res = await API.request('rejectPayment', { tontineId: App.currentTontine.id, memberId });
+    if (res.success) {
+      Toast.show('Déclaration refusée.', 'success');
+      await this.refresh(App.currentTontine.id);
+      this._flashMemberRow(memberId);
+    } else {
+      Toast.show(res.message || 'Erreur', 'error');
+    }
+  },
+
+  async updateMemberRole(memberId, role) {
+    if (App.checkDemoRestriction('modifier le rôle d\'un membre')) return;
+    const member = App.currentTontine.members.find(m => m.id === memberId);
+    const memberName = member?.name || 'ce membre';
+    const label = role === 'admin' ? 'nommer administrateur' : 'retirer les droits admin de';
+    const confirmed = await Modal.confirm(`Confirmer : ${label} ${memberName} ?`, '', 'Confirmer');
+    if (!confirmed) return;
+    const res = await API.request('updateMemberRole', { tontineId: App.currentTontine.id, memberId, role });
+    if (res.success) {
+      Toast.show(res.message || 'Rôle mis à jour.', 'success');
+      this.refresh(App.currentTontine.id);
+    } else {
+      Toast.show(res.message || 'Erreur', 'error');
+    }
+  },
+
+  async removeMember(memberId) {
+    if (App.checkDemoRestriction('retirer un membre de la tontine')) return;
+    const member = App.currentTontine.members.find(m => m.id === memberId);
+    const memberName = member?.name || 'ce membre';
+    const confirmed = await Modal.confirm(
+      `Retirer ${memberName} de la tontine ?`,
+      'Cette personne perdra immédiatement l\'accès à cette tontine. Cette action est irréversible.',
+      'Retirer'
+    );
+    if (!confirmed) return;
+    const res = await API.request('removeMember', { tontineId: App.currentTontine.id, memberId });
+    if (res.success) {
+      Toast.show(res.message || 'Membre retiré.', 'success');
+      this.refresh(App.currentTontine.id);
+    } else {
+      Toast.show(res.message || 'Erreur', 'error');
+    }
+  },
+
+  async openSettings() {
+    const t = App.currentTontine;
+    const iconPreview = t.icon
+      ? `<div class="tontine-icon-preview has-photo" id="tontine-icon-preview" style="background-image:url('${t.icon}')"></div>`
+      : `<div class="tontine-icon-preview" id="tontine-icon-preview">${(t.name || '?').slice(0, 2).toUpperCase()}</div>`;
+    Modal.open('Paramètres de la tontine', `
+      <div class="form-group">
+        <label class="form-label">Icône de la tontine</label>
+        <div class="tontine-icon-picker">
+          ${iconPreview}
+          <div class="tontine-icon-picker-actions">
+            <input type="file" id="tontine-icon-input" accept="image/*" style="display:none" />
+            <button class="btn-secondary btn-sm" id="btn-pick-tontine-icon">Choisir une image</button>
+            ${t.icon ? '<button class="btn-ghost btn-sm" id="btn-remove-tontine-icon" style="color:var(--color-red)">Retirer</button>' : ''}
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nom de la tontine</label>
+        <input type="text" class="form-input" id="edit-tontine-name" value="${(t.name || '').replace(/"/g, '&quot;')}" maxlength="60" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea class="form-input" id="edit-tontine-desc" rows="2" maxlength="200">${UI.escapeHtml(t.description || '')}</textarea>
+        <button class="btn-secondary btn-full mt" id="btn-save-tontine-info">Enregistrer les modifications</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Code d'invitation</label>
+        <div class="invite-code-box">
+          <span>${t.inviteCode || t.invite_code || '—'}</span>
+          <button class="btn-icon" onclick="UI.copyText('${t.inviteCode || t.invite_code}')">
+            <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Statut de la tontine</label>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-bottom:8px">
+          Statut actuel : <strong>${t.status || t.badgeText || 'Actif'}</strong>
+        </p>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Numéro Mobile Money (pour recevoir les cotisations)</label>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-bottom:8px">
+          Ce numéro sera affiché aux membres pour qu'ils vous envoient directement leur cotisation. Tontines Facile ne détient jamais cet argent.
+        </p>
+        <select class="form-input" id="momo-operator" style="margin-bottom:8px">
+          <option value="mtn" ${t.momoOperator === 'mtn' || !t.momoOperator ? 'selected' : ''}>🟡 MTN Mobile Money</option>
+          <option value="orange" ${t.momoOperator === 'orange' ? 'selected' : ''}>🟠 Orange Money</option>
+          <option value="wave" ${t.momoOperator === 'wave' ? 'selected' : ''}>🔵 Wave</option>
+          <option value="moov" ${t.momoOperator === 'moov' ? 'selected' : ''}>🔴 Moov Money</option>
+          <option value="mpesa" ${t.momoOperator === 'mpesa' ? 'selected' : ''}>🟢 M-Pesa</option>
+          <option value="airtel" ${t.momoOperator === 'airtel' ? 'selected' : ''}>🔴 Airtel Money</option>
+          <option value="free" ${t.momoOperator === 'free' ? 'selected' : ''}>🔴 Free Money</option>
+        </select>
+        <input type="tel" class="form-input" id="momo-number" placeholder="Ex: +225 07000000 ou 6XXXXXXXX" value="${t.momoNumber || ''}" maxlength="18" />
+        <button class="btn-secondary btn-full mt" id="btn-save-momo">Enregistrer le numéro</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="color:var(--color-red)">Zone de danger</label>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-bottom:8px">
+          ⚠️ Fermer une tontine est irréversible. Tous les membres seront notifiés.
+        </p>
+        <button class="btn-danger btn-full" id="btn-close-tontine">🔒 Fermer définitivement la tontine</button>
+
+        <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin:14px 0 8px">
+          ⛔ Supprimer efface définitivement la tontine et toutes ses données (membres, paiements, journal, chat). Impossible à annuler.
+        </p>
+        <p style="font-size:var(--fs-xs);color:var(--color-text-2);margin-bottom:6px">
+          Pour confirmer, tapez exactement : <strong>supprimer la tontine ${UI.escapeHtml(t.name || '')}</strong>
+        </p>
+        <input type="text" class="form-input" id="delete-confirm-input" placeholder="supprimer la tontine ${(t.name || '').replace(/"/g, '&quot;')}" style="margin-bottom:8px" autocomplete="off" />
+        <label class="form-label" style="font-size:var(--fs-xs);margin-top:2px">Votre mot de passe (sécurité supplémentaire)</label>
+        <input type="password" class="form-input" id="delete-confirm-password" placeholder="Mot de passe du compte" style="margin-bottom:8px" autocomplete="current-password" />
+        <button class="btn-danger btn-full" id="btn-delete-tontine" disabled style="opacity:0.5">🗑️ Supprimer définitivement la tontine</button>
+      </div>
+    `);
+
+    /* Icône de la tontine */
+    const iconInput = document.getElementById('tontine-icon-input');
+    const iconPreviewEl = document.getElementById('tontine-icon-preview');
+    document.getElementById('btn-pick-tontine-icon')?.addEventListener('click', () => iconInput.click());
+    iconInput?.addEventListener('change', async () => {
+      const file = iconInput.files[0];
+      if (!file) return;
+      const base64 = await UI.resizeImageToBase64(file, 300, 0.75);
+      const res = await API.request('updateTontineIcon', { tontineId: t.id, icon: base64 });
+      if (res.success) {
+        Toast.show('Icône mise à jour !', 'success');
+        t.icon = res.data.icon;
+        iconPreviewEl.classList.add('has-photo');
+        iconPreviewEl.style.backgroundImage = `url('${res.data.icon}')`;
+        iconPreviewEl.textContent = '';
+        this.refresh(t.id);
+        Dashboard.load();
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
+      }
+    });
+    document.getElementById('btn-remove-tontine-icon')?.addEventListener('click', async () => {
+      const res = await API.request('updateTontineIcon', { tontineId: t.id, icon: null });
+      if (res.success) {
+        Toast.show('Icône retirée.', 'success');
+        t.icon = null;
+        iconPreviewEl.classList.remove('has-photo');
+        iconPreviewEl.style.backgroundImage = '';
+        iconPreviewEl.textContent = (t.name || '?').slice(0, 2).toUpperCase();
+        this.refresh(t.id);
+        Dashboard.load();
+      }
+    });
+
+    document.getElementById('btn-save-tontine-info')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const name = document.getElementById('edit-tontine-name').value.trim();
+      const description = document.getElementById('edit-tontine-desc').value.trim();
+      if (!name) { Toast.show('Le nom ne peut pas être vide.', 'error'); return; }
+      if (btn.disabled) return;
+      const originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+      try {
+        const res = await API.request('updateTontine', { tontineId: t.id, name, description });
+        if (res.success) {
+          Toast.show('Tontine mise à jour !', 'success');
+          Modal.close();
+          this.refresh(t.id);
+        } else {
+          Toast.show(res.message || 'Erreur', 'error');
+        }
+      } catch (err) {
+        Toast.show('Erreur réseau, réessayez.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
+    });
+
+    document.getElementById('btn-save-momo')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      const momoOperator = document.getElementById('momo-operator').value;
+      const momoNumber = document.getElementById('momo-number').value.trim();
+      const cleanNumber = momoNumber.replace(/[\s.-]/g, '');
+      if (!/^(\+?\d{8,15})$/.test(cleanNumber)) {
+        Toast.show('Numéro invalide (8 à 15 chiffres).', 'error');
+        return;
+      }
+      const originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+      try {
+        const res = await API.request('updateTontineMomo', { tontineId: t.id, momoOperator, momoNumber });
+        if (res.success) {
+          Toast.show('Numéro Mobile Money enregistré !', 'success');
+          t.momoOperator = res.data.momoOperator;
+          t.momoNumber = res.data.momoNumber;
+          Modal.close();
+        } else {
+          Toast.show(res.message || 'Erreur', 'error');
+        }
+      } catch (err) {
+        Toast.show('Erreur réseau, réessayez.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
+    });
+
+    document.getElementById('btn-close-tontine')?.addEventListener('click', async () => {
+      if (!confirm('Êtes-vous sûr de vouloir fermer cette tontine ? Cette action est irréversible.')) return;
+      const res = await API.request('closeTontine', { tontineId: t.id });
+      if (res.success) {
+        Toast.show('Tontine fermée avec succès.', 'success');
+        Modal.close();
+        await Dashboard.load();
+        Nav.go('my-tontines');
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
+      }
+    });
+
+    /* Suppression définitive : le bouton ne s'active que si le texte tapé
+       correspond EXACTEMENT (nom de la tontine inclus) ET qu'un mot de passe
+       a été saisi, pour éviter tout clic accidentel sur une action aussi
+       destructrice. Le mot de passe est aussi revérifié côté serveur. */
+    const expectedDeleteText = `supprimer la tontine ${t.name || ''}`.trim().toLowerCase();
+    const deleteInput = document.getElementById('delete-confirm-input');
+    const deletePasswordInput = document.getElementById('delete-confirm-password');
+    const deleteBtn = document.getElementById('btn-delete-tontine');
+    const syncDeleteBtnState = () => {
+      const matches = deleteInput.value.trim().toLowerCase() === expectedDeleteText && deletePasswordInput.value.length > 0;
+      deleteBtn.disabled = !matches;
+      deleteBtn.style.opacity = matches ? '1' : '0.5';
+    };
+    deleteInput?.addEventListener('input', syncDeleteBtnState);
+    deletePasswordInput?.addEventListener('input', syncDeleteBtnState);
+    deleteBtn?.addEventListener('click', async () => {
+      if (deleteBtn.disabled) return;
+      const doubleCheck = await Modal.confirm(
+        'Dernière confirmation',
+        `Cette action supprimera définitivement "${UI.escapeHtml(t.name)}", tous ses membres, paiements, son journal et son chat de groupe. C'est irréversible.`,
+        'Oui, supprimer définitivement'
+      );
+      if (!doubleCheck) return;
+      deleteBtn.disabled = true;
+      deleteBtn.textContent = 'Suppression...';
+      const res = await API.request('deleteTontine', {
+        tontineId: t.id,
+        confirmText: deleteInput.value.trim(),
+        password: deletePasswordInput.value
+      });
+      if (res.success) {
+        Toast.show('Tontine supprimée.', 'success');
+        Modal.close();
+        await Dashboard.load();
+        Nav.go('my-tontines');
+      } else {
+        Toast.show(res.message || 'Erreur', 'error');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = '🗑️ Supprimer définitivement la tontine';
+      }
+    });
+  }
+};
+
+/* ═══════════════════════════════ CREATE TONTINE ═══════════════════════════════ */
+const CreateTontine = {
+  init() {
+    /* Set default date to today */
+    const dateInput = document.getElementById('create-start-date');
+    dateInput.valueAsDate = new Date();
+
+    document.getElementById('btn-create-tontine').addEventListener('click', async () => {
+      if (App.checkDemoRestriction('créer une tontine')) return;
+      const name = document.getElementById('create-name').value.trim();
+      const desc = document.getElementById('create-desc').value.trim();
+      const amount = parseInt(document.getElementById('create-amount').value);
+      const frequency = document.getElementById('create-frequency').value;
+      const maxMembers = parseInt(document.getElementById('create-max-members').value) || 10;
+      const startDate = document.getElementById('create-start-date').value;
+
+      if (!name) { Toast.show('Le nom de la tontine est obligatoire', 'error'); return; }
+      if (!amount || amount < 1000) { Toast.show('Le montant minimum est de 1 000 FCFA', 'error'); return; }
+
+      UI.setLoading('btn-create-tontine', true, 'Création en cours...');
+      const res = await API.request('createTontine', {
+        name, description: desc, amount, frequency, maxMembers, startDate,
+        requireApproval: document.getElementById('create-approval').checked,
+        publicLog: document.getElementById('create-public-log').checked,
+        randomOrder: document.getElementById('create-random-order').checked,
+        penalties: document.getElementById('create-penalties').checked
+      });
+      UI.setLoading('btn-create-tontine', false, 'Créer la tontine');
+
+      if (res.success) {
+        Toast.show(`✨ Tontine "${name}" créée avec succès !`, 'success');
+        /* Reset form */
+        document.getElementById('create-name').value = '';
+        document.getElementById('create-desc').value = '';
+        document.getElementById('create-amount').value = '';
+        /* Reload dashboard & open detail */
+        Dashboard.load();
+        setTimeout(() => TontineDetail.open(res.data), 500);
+      } else {
+        Toast.show(res.message || 'Erreur lors de la création', 'error');
+      }
+    });
+  }
+};
+
+/* ═══════════════════════════════ JOIN TONTINE ═══════════════════════════════ */
+const JoinTontine = {
+  init() {
+    document.getElementById('btn-join-search').addEventListener('click', async () => {
+      const code = document.getElementById('join-code').value.trim().toUpperCase();
+      if (!code) { Toast.show('Entrez un code d\'invitation', 'error'); return; }
+
+      UI.setLoading('btn-join-search', true, 'Recherche...');
+      const res = await API.request('searchTontine', { code });
+      UI.setLoading('btn-join-search', false, 'Rechercher');
+
+      if (res.success) {
+        const t = res.data;
+        document.getElementById('preview-name').textContent = t.name;
+        document.getElementById('preview-amount').textContent = UI.formatAmount(t.amount);
+        document.getElementById('preview-members').textContent = t.members;
+        document.getElementById('preview-admin').textContent = t.admin;
+        document.getElementById('preview-start').textContent = t.start;
+        document.getElementById('preview-desc').textContent = t.desc;
+        document.getElementById('join-preview').classList.remove('hidden');
+      } else {
+        Toast.show(res.message || 'Tontine introuvable. Vérifiez le code.', 'error');
+      }
+    });
+
+    document.getElementById('btn-confirm-join').addEventListener('click', async () => {
+      if (App.checkDemoRestriction('rejoindre cette tontine')) return;
+      const code = document.getElementById('join-code').value.trim().toUpperCase();
+      UI.setLoading('btn-confirm-join', true, 'Envoi...');
+      const res = await API.request('joinTontine', { code });
+      UI.setLoading('btn-confirm-join', false, 'Envoyer ma demande d\'adhésion');
+      if (res.success) {
+        Toast.show('Demande envoyée ! L\'administrateur va vous contacter.', 'success');
+        document.getElementById('join-preview').classList.add('hidden');
+        document.getElementById('join-code').value = '';
+      }
+    });
+
+    /* Code input auto-uppercase */
+    document.getElementById('join-code').addEventListener('input', (e) => {
+      e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    });
+
+    /* Load invitations */
+    this.loadInvitations();
+  },
+
+  async loadInvitations() {
+    const res = await API.request('getInvitations');
+    const list = document.getElementById('invitations-list');
+    if (res.success && res.data.length) {
+      list.innerHTML = '';
+      res.data.forEach(inv => {
+        const div = document.createElement('div');
+        div.className = 'tontine-card';
+        div.innerHTML = `
+          <div class="tontine-card-header">
+            <span class="tontine-card-name">${inv.tontine}</span>
+            <span class="badge badge-pending">Invitation</span>
+          </div>
+          <div class="tontine-card-body">
+            <div class="tontine-card-stat"><span>De</span><span>${inv.from}</span></div>
+            <div class="tontine-card-stat"><span>Mise</span><span>${UI.formatAmount(inv.amount)}</span></div>
+            <div class="tontine-card-stat"><span>Freq.</span><span>${inv.freq}</span></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn-primary btn-sm" style="flex:1" onclick="JoinTontine.acceptInvitation('${inv.code}',this)">Accepter</button>
+            <button class="btn-outline btn-sm" style="flex:1">Refuser</button>
+          </div>
+        `;
+        list.appendChild(div);
+      });
+    }
+  },
+
+  async acceptInvitation(code, btn) {
+    btn.textContent = 'Envoi...';
+    const res = await API.request('joinTontine', { code, invitation: true });
+    if (res.success) {
+      Toast.show('Vous avez rejoint la tontine !', 'success');
+      Dashboard.load();
+    }
+  }
+};
+
+/* ═══════════════════════════════ PROFILE ═══════════════════════════════ */
+const Profile = {
+  load() {
+    const u = App.currentUser;
+    if (!u) return;
+    const firstname = u.firstname || '';
+    const lastname  = u.lastname  || '';
+    const email     = u.email     || '';
+    const phone     = u.phone     || '';
+    const avatar    = u.avatar    || (firstname[0] + (lastname[0] || '')).toUpperCase() || '?';
+    const inviteCode = u.invite_code || u.inviteCode || 'TF-????';
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+
+    UI.setAvatarEl('profile-avatar', u);
+    set('profile-name',     `${firstname} ${lastname}`.trim());
+    set('profile-email',    email);
+    set('profile-role',     u.role || 'Membre');
+    set('my-invite-code',   inviteCode);
+    setVal('profile-firstname',    firstname);
+    setVal('profile-lastname',     lastname);
+    setVal('profile-email-input',  email);
+    setVal('profile-phone',        phone);
+  },
+
+  init() {
+    document.getElementById('btn-save-profile').addEventListener('click', async () => {
+      if (App.checkDemoRestriction('modifier votre profil')) return;
+      const data = {
+        firstname: document.getElementById('profile-firstname').value.trim(),
+        lastname: document.getElementById('profile-lastname').value.trim(),
+        email: document.getElementById('profile-email-input').value.trim(),
+        phone: document.getElementById('profile-phone').value.trim()
+      };
+      if (!data.firstname || !data.lastname || !data.email) { Toast.show('Champs obligatoires manquants', 'error'); return; }
+      UI.setLoading('btn-save-profile', true, 'Sauvegarde...');
+      const res = await API.request('updateProfile', data);
+      UI.setLoading('btn-save-profile', false, 'Sauvegarder');
+      if (res.success) {
+        Object.assign(App.currentUser, data);
+        App.currentUser.avatar = (data.firstname[0]+data.lastname[0]).toUpperCase();
+        Storage.save('user', App.currentUser);
+        UI.updateUserInfo();
+        Toast.show('Profil mis à jour !', 'success');
+      }
+    });
+
+    document.getElementById('btn-copy-code').addEventListener('click', () => {
+      UI.copyText(document.getElementById('my-invite-code').textContent);
+    });
+
+    /* Photo de profil : clic sur le crayon ouvre le sélecteur de fichier */
+    document.getElementById('btn-edit-avatar').addEventListener('click', () => {
+      if (App.checkDemoRestriction('changer votre photo de profil')) return;
+      document.getElementById('avatar-file-input').click();
+    });
+    document.getElementById('avatar-file-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      e.target.value = ''; /* permet de re-sélectionner le même fichier ensuite */
+      if (!file) return;
+      if (!file.type.startsWith('image/')) { Toast.show('Choisissez un fichier image.', 'error'); return; }
+
+      try {
+        const base64 = await UI.resizeImageToBase64(file);
+        const res = await API.request('updateAvatar', { avatar: base64 });
+        if (res.success) {
+          App.currentUser.avatar = res.data.avatar;
+          App.currentUser.avatar_photo = res.data.avatar_photo;
+          Storage.save('user', App.currentUser);
+          UI.updateUserInfo();
+          Toast.show('Photo de profil mise à jour !', 'success');
+        } else {
+          Toast.show(res.message || 'Erreur lors de la mise à jour de la photo', 'error');
+        }
+      } catch (err) {
+        Toast.show("Impossible de traiter cette image", 'error');
+      }
+    });
+
+    document.getElementById('btn-change-password').addEventListener('click', async () => {
+      if (App.checkDemoRestriction('changer votre mot de passe')) return;
+      const cur = document.getElementById('current-password').value;
+      const nw  = document.getElementById('new-password').value;
+      if (!cur || !nw) { Toast.show('Entrez l\'ancien et le nouveau mot de passe', 'error'); return; }
+      if (nw.length < 8) { Toast.show('Le nouveau mot de passe doit contenir au moins 8 caractères', 'error'); return; }
+      const res = await API.request('changePassword', { current: cur, newPassword: nw });
+      if (res.success) { Toast.show('Mot de passe modifié !', 'success'); document.getElementById('current-password').value = ''; document.getElementById('new-password').value = ''; }
+      else { Toast.show(res.message || 'Mot de passe actuel incorrect', 'error'); }
+    });
+  }
+};
+
+/* ═══════════════════════════════ SETTINGS ═══════════════════════════════ */
+const Settings = {
+  init() {
+    /* Theme buttons */
+    document.querySelectorAll('.theme-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const theme = btn.dataset.theme;
+        document.documentElement.setAttribute('data-theme', theme);
+        document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        App.settings.theme = theme;
+        Storage.save('settings', App.settings);
+        Toast.show(`Thème "${btn.querySelector('span').textContent}" activé`, 'success');
+      });
+    });
+
+    /* Font size slider */
+    const sizes = ['xsmall', 'small', 'medium', 'large', 'xlarge'];
+    const labels = ['Très petit', 'Petit', 'Normal', 'Grand', 'Très grand'];
+    const slider = document.getElementById('font-slider');
+    slider.addEventListener('input', () => {
+      const size = sizes[slider.value];
+      document.documentElement.setAttribute('data-font-size', size);
+      document.getElementById('font-preview').textContent = labels[slider.value];
+      App.settings.fontSize = size;
+      Storage.save('settings', App.settings);
+    });
+
+    /* Notification toggles */
+    ['payment','requests','confirmed','audit'].forEach(key => {
+      const el = document.getElementById(`notif-${key}`);
+      if (el) el.addEventListener('change', () => {
+        App.settings.notifications[key] = el.checked;
+        Storage.save('settings', App.settings);
+      });
+    });
+
+    /* Security toggles */
+    ['pin','hide-amounts'].forEach(key => {
+      const el = document.getElementById(`setting-${key}`);
+      if (el) el.addEventListener('change', () => {
+        const k = key.replace('-','');
+        App.settings.security[k] = el.checked;
+        Storage.save('settings', App.settings);
+      });
+    });
+
+    /* Logout buttons */
+    document.getElementById('btn-logout').addEventListener('click', () => Auth.logout());
+    document.getElementById('btn-logout-settings').addEventListener('click', () => Auth.logout());
+  },
+
+  applyStored() {
+    const saved = Storage.load('settings');
+    if (!saved) return;
+    App.settings = { ...App.settings, ...saved };
+    document.documentElement.setAttribute('data-theme', App.settings.theme);
+    document.documentElement.setAttribute('data-font-size', App.settings.fontSize);
+    const sizes = ['xsmall','small','medium','large','xlarge'];
+    const idx = sizes.indexOf(App.settings.fontSize);
+    const slider = document.getElementById('font-slider');
+    if (slider) slider.value = idx >= 0 ? idx : 2;
+    document.querySelectorAll('.theme-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.theme === App.settings.theme);
+    });
+  }
+};
+
+/* ═══════════════════════════════ TRANSACTIONS ═══════════════════════════════ */
+const Transactions = {
+  data: [],
+  async load() {
+    const list = document.getElementById('transactions-list');
+    if (list) list.innerHTML = UI.skeletonRows(4);
+    const res = await API.request('getTransactions');
+    if (!res.success || !res.data.length) {
+      list.innerHTML = '<div class="empty-state"><p>Aucune transaction</p></div>';
+      return;
+    }
+    list.innerHTML = '';
+    this.data = res.data;
+    res.data.forEach(tx => list.appendChild(this.txCard(tx)));
+
+    /* Filter chips */
+    document.querySelectorAll('#page-transactions .chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('#page-transactions .chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        const f = chip.dataset.filter;
+        const filtered = f === 'all' ? this.data :
+          f === 'paid' ? this.data.filter(t => t.status === 'paid') :
+          f === 'pending' ? this.data.filter(t => t.status === 'pending') :
+          this.data.filter(t => t.type === 'in');
+        list.innerHTML = '';
+        filtered.forEach(tx => list.appendChild(this.txCard(tx)));
+      });
+    });
+  },
+
+  txCard(tx) {
+    const div = document.createElement('div');
+    div.className = 'transaction-item';
+    const isOut = tx.type === 'out';
+    div.innerHTML = `
+      <div class="tx-icon ${tx.type}">
+        <svg viewBox="0 0 24 24">${isOut
+          ? '<line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="19 12 12 19 5 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+          : '<line x1="12" y1="19" x2="12" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="5 12 12 5 19 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+        }</svg>
+      </div>
+      <div class="tx-info">
+        <p class="tx-name">${tx.name}</p>
+        <p class="tx-tontine">${tx.tontine}</p>
+      </div>
+      <div class="tx-right">
+        <p class="tx-amount ${tx.type}">${isOut ? '-' : '+'}${UI.formatAmount(tx.amount)} F</p>
+        <p class="tx-date">${tx.date}</p>
+      </div>
+    `;
+    return div;
+  }
+};
+
+/* ═══════════════════════════════ AUDIT LOG ═══════════════════════════════ */
+const AuditLog = {
+  data: [],
+  async load() {
+    const list = document.getElementById('audit-log-list');
+    if (list) list.innerHTML = UI.skeletonRows(5);
+    const res = await API.request('getGlobalLog');
+    const entries = Array.isArray(res.data) ? res.data : (res.data?.items || []);
+    if (!res.success || !entries.length) {
+      list.innerHTML = '<div class="empty-state"><p>Aucune entrée dans le journal</p></div>';
+      this.data = [];
+      return;
+    }
+    list.innerHTML = '';
+    this.data = entries;
+    entries.forEach(entry => {
+      const div = document.createElement('div');
+      div.className = `log-item ${entry.type}`;
+      div.innerHTML = `
+        <p class="log-action">${entry.action}</p>
+        <p class="log-detail">${entry.detail}</p>
+        <div class="log-meta"><span class="log-user">@${entry.user}</span><span class="log-time">${entry.time}</span></div>
+      `;
+      list.appendChild(div);
+    });
+  }
+};
+
+/* ═══════════════════════════════ INVITE ═══════════════════════════════ */
+const Invite = {
+  tontines: [],
+
+  init() {
+    document.getElementById('btn-send-invite').addEventListener('click', async () => {
+      if (App.checkDemoRestriction('envoyer une invitation par email')) return;
+      const select = document.getElementById('invite-tontine-select');
+      const tontineId = select.value;
+      const email = document.getElementById('invite-email').value.trim();
+      const message = document.getElementById('invite-message').value.trim();
+      if (!tontineId) { Toast.show('Sélectionnez une tontine', 'error'); return; }
+      if (!email) { Toast.show('Entrez un email', 'error'); return; }
+      UI.setLoading('btn-send-invite', true, 'Envoi...');
+      const res = await API.request('sendInvite', { tontineId, email, message });
+      UI.setLoading('btn-send-invite', false, "Envoyer l'invitation");
+      if (res.success) {
+        Toast.show(`Invitation envoyée à ${email} !`, 'success');
+        document.getElementById('invite-email').value = '';
+        document.getElementById('invite-message').value = '';
+      } else {
+        Toast.show(res.message || "Erreur lors de l'envoi", 'error');
+      }
+    });
+
+    /* Met à jour le code + le lien de partage quand on change de tontine */
+    document.getElementById('invite-tontine-select').addEventListener('change', (e) => {
+      this.updateCodeAndLink(e.target.value);
+    });
+
+    document.getElementById('btn-copy-tontine-code')?.addEventListener('click', () => {
+      UI.copyText(document.getElementById('invite-tontine-code').textContent);
+    });
+
+    document.getElementById('btn-direct-add')?.addEventListener('click', async () => {
+      const select = document.getElementById('invite-tontine-select');
+      const tontineId = select.value;
+      const identifier = document.getElementById('direct-add-identifier').value.trim();
+      if (!tontineId) { Toast.show('Sélectionnez une tontine', 'error'); return; }
+      if (!identifier) { Toast.show('Entrez un email ou un numéro de téléphone', 'error'); return; }
+      UI.setLoading('btn-direct-add', true, 'Ajout...');
+      const res = await API.request('addMemberDirect', { tontineId, identifier });
+      UI.setLoading('btn-direct-add', false, 'Ajouter à la tontine');
+      if (res.success) {
+        Toast.show(res.message || 'Membre ajouté !', 'success');
+        document.getElementById('direct-add-identifier').value = '';
+      } else {
+        Toast.show(res.message || 'Impossible d\'ajouter ce membre', 'error');
+      }
+    });
+
+    document.querySelectorAll('.share-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const select = document.getElementById('invite-tontine-select');
+        if (!select.value) { Toast.show('Sélectionnez une tontine', 'error'); return; }
+        const channel = btn.dataset.channel;
+        const link = document.getElementById('share-link').textContent;
+        const msg = `Rejoins ma tontine sur Tontines Facile ! ${link}`;
+        if (channel === 'copy') { UI.copyText(link); }
+        else if (channel === 'whatsapp') { window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`); }
+        else if (channel === 'sms') { window.open(`sms:?body=${encodeURIComponent(msg)}`); }
+      });
+    });
+  },
+
+  updateCodeAndLink(tontineId) {
+    const codeBox  = document.getElementById('invite-code-display');
+    const codeHint = document.getElementById('invite-code-hint');
+    const t = this.tontines.find(t => String(t.id) === String(tontineId));
+    if (!t) {
+      codeBox.style.display = 'none';
+      codeHint.style.display = 'block';
+      document.getElementById('share-link').textContent = 'Sélectionnez une tontine ci-dessus';
+      return;
+    }
+    const code = t.inviteCode || t.invite_code || '—';
+    codeHint.style.display = 'none';
+    codeBox.style.display = 'flex';
+    document.getElementById('invite-tontine-code').textContent = code;
+    /* Lien basé sur le domaine réel de l'appli, pas un domaine fictif */
+    document.getElementById('share-link').textContent = `${window.location.origin}/join/${code}`;
+  },
+
+  _populate(list, select) {
+    const prevValue = select.value;
+    select.innerHTML = '<option value="">-- Choisir une tontine --</option>';
+    this.tontines = (list || []).filter(t => t.userRole === 'admin');
+    this.tontines.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      select.appendChild(opt);
+    });
+    /* Conserve la sélection en cours si elle existe toujours dans la nouvelle liste */
+    if (prevValue && this.tontines.some(t => String(t.id) === String(prevValue))) {
+      select.value = prevValue;
+    }
+  },
+
+  async loadTontines() {
+    const select = document.getElementById('invite-tontine-select');
+    if (!select) return;
+
+    /* Affichage instantané à partir du cache déjà chargé (dashboard / mes tontines),
+       pour éviter que le select reste vide/lent le temps d'un nouvel appel réseau */
+    if (MyTontines.data && MyTontines.data.length) {
+      this._populate(MyTontines.data, select);
+      this.updateCodeAndLink(select.value);
+    }
+
+    /* Rafraîchit ensuite en arrière-plan pour rester synchronisé avec le serveur */
+    const res = await API.request('getTontines');
+    if (res.success) {
+      this._populate(res.data, select);
+    }
+    this.updateCodeAndLink(select.value);
+  },
+
+  /* Pré-sélectionne une tontine précise (ex: depuis le bouton "Inviter un membre"
+     sur la page de détail) sans que l'utilisateur ait besoin de la choisir manuellement */
+  async preselect(tontine) {
+    await this.loadTontines();
+    const select = document.getElementById('invite-tontine-select');
+    if (!select || !tontine) return;
+    const exists = this.tontines.some(t => String(t.id) === String(tontine.id));
+    if (exists) {
+      select.value = tontine.id;
+      this.updateCodeAndLink(tontine.id);
+    }
+  }
+};
+
+/* ═══════════════════════════════ CONTACTS ═══════════════════════════════ */
+const Contacts = {
+  searchTimer: null,
+  _lastAccepted: [],
+
+  init() {
+    const input = document.getElementById('contacts-search-input');
+    input.addEventListener('input', () => {
+      clearTimeout(this.searchTimer);
+      const q = input.value.trim();
+      const results = document.getElementById('contacts-search-results');
+      if (q.length < 2) { results.innerHTML = ''; return; }
+      this.searchTimer = setTimeout(() => this.search(q), 400);
+    });
+  },
+
+  async load() {
+    const acceptedListInit = document.getElementById('contacts-accepted-list');
+    if (acceptedListInit) acceptedListInit.innerHTML = UI.skeletonRows(3);
+    const res = await API.request('getContacts');
+    if (!res.success) return;
+    const { accepted, incoming, outgoing } = res.data;
+    this._lastAccepted = accepted;
+
+    const incomingCard = document.getElementById('contacts-incoming-card');
+    const outgoingCard = document.getElementById('contacts-outgoing-card');
+    incomingCard.style.display = incoming.length ? 'block' : 'none';
+    outgoingCard.style.display = outgoing.length ? 'block' : 'none';
+
+    const incomingList = document.getElementById('contacts-incoming-list');
+    incomingList.innerHTML = '';
+    incoming.forEach(c => incomingList.appendChild(this.renderItem(c, 'incoming')));
+
+    const outgoingList = document.getElementById('contacts-outgoing-list');
+    outgoingList.innerHTML = '';
+    outgoing.forEach(c => outgoingList.appendChild(this.renderItem(c, 'outgoing')));
+
+    const acceptedList = document.getElementById('contacts-accepted-list');
+    acceptedList.innerHTML = '';
+    if (!accepted.length) {
+      acceptedList.innerHTML = UI.emptyState('Vous n\'avez pas encore de contacts');
+    } else {
+      accepted.forEach(c => acceptedList.appendChild(this.renderItem(c, 'accepted')));
+    }
+  },
+
+  renderItem(c, mode) {
+    const div = document.createElement('div');
+    div.className = 'member-item contact-item';
+    const photo = c.avatar_photo;
+    const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
+    const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
+    let actions = '';
+    if (mode === 'incoming') {
+      actions = `
+        <div class="contact-item-actions">
+          <button class="btn-icon" title="Accepter" onclick="Contacts.respond(${c.id},'accept')" style="color:var(--color-primary)">
+            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <button class="btn-icon" title="Refuser" onclick="Contacts.respond(${c.id},'decline')" style="color:var(--color-red)">
+            <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>`;
+    } else if (mode === 'outgoing') {
+      actions = `<span class="member-status member-pending">En attente</span>`;
+    } else {
+      actions = `
+        <div class="contact-item-actions">
+          <button class="btn-icon" title="Envoyer un message" onclick="Chat.openWithUser(${c.id})">
+            <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          </button>
+          <button class="btn-icon" title="Retirer" onclick="Contacts.remove(${c.id})" style="color:var(--color-red)">
+            <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+          </button>
+        </div>`;
+    }
+    div.innerHTML = `
+      <div class="${avatarClass}"${avatarStyle}>${photo ? '' : (c.initials || c.name.slice(0,2).toUpperCase())}</div>
+      <div class="member-info">
+        <p class="member-name">${c.name}</p>
+        <p class="member-role">${c.invite_code || ''}</p>
+      </div>
+      ${actions}
+    `;
+    return div;
+  },
+
+  async search(q) {
+    const results = document.getElementById('contacts-search-results');
+    results.innerHTML = '<div class="empty-state small"><p>Recherche…</p></div>';
+    const res = await API.request('searchUsers', { query: q });
+    if (!res.success || !res.data.length) {
+      results.innerHTML = '<div class="empty-state small"><p>Aucun utilisateur trouvé</p></div>';
+      return;
+    }
+    results.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'contact-search-result';
+    res.data.forEach(u => {
+      const div = document.createElement('div');
+      div.className = 'member-item contact-item';
+      const photo = u.avatar_photo;
+      const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm';
+      const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
+      let action;
+      if (u.contactStatus === 'accepted') action = `<span class="member-status member-paid">Déjà ami</span>`;
+      else if (u.contactStatus === 'pending') action = `<span class="member-status member-pending">Invité(e)</span>`;
+      else action = `<button class="btn-primary btn-sm" onclick="Contacts.add(${u.id})">Ajouter</button>`;
+      div.innerHTML = `
+        <div class="${avatarClass}"${avatarStyle}>${photo ? '' : (u.initials || u.name.slice(0,2).toUpperCase())}</div>
+        <div class="member-info">
+          <p class="member-name">${u.name}</p>
+          <p class="member-role">${u.invite_code || u.email || ''}</p>
+        </div>
+        ${action}
+      `;
+      wrap.appendChild(div);
+    });
+    results.appendChild(wrap);
+  },
+
+  async add(contactId) {
+    const res = await API.request('addContact', { contactId });
+    if (res.success) {
+      Toast.show(res.message || 'Demande envoyée !', 'success');
+      const input = document.getElementById('contacts-search-input');
+      if (input.value.trim().length >= 2) this.search(input.value.trim());
+      this.load();
+    } else {
+      Toast.show(res.message || "Impossible d'ajouter ce contact", 'error');
+    }
+  },
+
+  async respond(contactId, decision) {
+    const res = await API.request('respondContact', { contactId, decision });
+    if (res.success) { Toast.show(res.message || 'Fait !', 'success'); this.load(); }
+    else Toast.show(res.message || 'Erreur', 'error');
+  },
+
+  async remove(contactId) {
+    const confirmed = await Modal.confirm('Retirer ce contact ?', 'Vous pourrez le ré-ajouter plus tard si besoin.', 'Retirer');
+    if (!confirmed) return;
+    const res = await API.request('removeContact', { contactId });
+    if (res.success) { Toast.show('Contact retiré', 'success'); this.load(); }
+  }
+};
+
+
+/* ═══════════════════════════════ CHAT ═══════════════════════════════ */
+const Chat = {
+  currentConversationId: null,
+  currentTitle: '',
+  isGroup: false,
+  pollTimer: null,
+  listPollTimer: null,
+  lastMessageId: 0,
+  lastRenderedDate: null,
+  otherLastReadAt: null,
+  renderedIds: null,
+  _fetchInFlight: false,
+  _sending: false,
+  _conversations: [],
+  _offlineQueue: [],
+
+  init() {
+    const input = document.getElementById('chat-message-input');
+    const sendBtn = document.getElementById('btn-chat-send');
+    const recordBtn = document.getElementById('btn-chat-record');
+
+    /* Bascule mic ↔ envoi selon que le champ contient du texte (comme WhatsApp),
+       et fait grandir la zone de saisie au fil des lignes (jusqu'à une hauteur max, cf. CSS) */
+    const syncInputState = () => {
+      const hasText = input.value.trim().length > 0;
+      sendBtn.classList.toggle('hidden', !hasText);
+      recordBtn.classList.toggle('hidden', hasText);
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 110) + 'px';
+    };
+    input.addEventListener('input', syncInputState);
+    syncInputState();
+
+    document.getElementById('btn-chat-send').addEventListener('click', () => this.send());
+    document.getElementById('chat-message-input').addEventListener('keydown', (e) => {
+      /* Entrée envoie, Maj+Entrée insère une nouvelle ligne */
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.send(); }
+    });
+
+    /* Pièce jointe (photo ou fichier) */
+    document.getElementById('btn-chat-attach').addEventListener('click', () => {
+      if (App.checkDemoRestriction('envoyer une pièce jointe')) return;
+      document.getElementById('chat-file-input').click();
+    });
+    document.getElementById('chat-file-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        if (file.type.startsWith('image/')) {
+          const base64 = await UI.resizeImageToBase64(file, 1000, 0.65);
+          await this.sendAttachment('image', base64, file.name);
+        } else {
+          const base64 = await UI.fileToBase64(file, 2_500_000);
+          await this.sendAttachment('file', base64, file.name);
+        }
+      } catch (err) {
+        Toast.show(err.message || "Impossible d'envoyer ce fichier", 'error');
+      }
+    });
+
+    /* Message vocal */
+    document.getElementById('btn-chat-record').addEventListener('click', () => {
+      if (App.checkDemoRestriction('envoyer un message vocal')) return;
+      this.toggleRecording();
+    });
+
+    /* Recherche dans la liste des conversations (comme WhatsApp) */
+    document.getElementById('search-conversations')?.addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      const filtered = !q ? this._conversations : this._conversations.filter(c =>
+        (c.title || '').toLowerCase().includes(q) || (c.last_message || '').toLowerCase().includes(q)
+      );
+      this.renderConversationsList(filtered);
+    });
+  },
+
+  mediaRecorder: null,
+  audioChunks: [],
+  isRecording: false,
+
+  async toggleRecording() {
+    if (App.checkDemoRestriction('enregistrer un message vocal')) return;
+    const btn = document.getElementById('btn-chat-record');
+    if (this.isRecording) {
+      this.mediaRecorder?.stop();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      Toast.show("L'enregistrement vocal n'est pas supporté sur cet appareil", 'error');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      /* webm/opus = déjà très compressé, léger même pour plusieurs dizaines de secondes */
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+      this.mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      this.audioChunks = [];
+      this.mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) this.audioChunks.push(e.data); };
+      this.mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        btn.classList.remove('recording');
+        this.isRecording = false;
+        const blob = new Blob(this.audioChunks, { type: this.mediaRecorder.mimeType || 'audio/webm' });
+        if (blob.size < 500) return; /* enregistrement trop court / annulé */
+        if (blob.size > 1_400_000) { Toast.show('Message vocal trop long, réessayez plus court.', 'error'); return; }
+        const reader = new FileReader();
+        reader.onload = () => this.sendAttachment('audio', reader.result, 'vocal.webm');
+        reader.readAsDataURL(blob);
+      };
+      this.mediaRecorder.start();
+      this.isRecording = true;
+      btn.classList.add('recording');
+      Toast.show('Enregistrement… touchez à nouveau pour envoyer', 'info');
+    } catch (err) {
+      Toast.show('Micro indisponible ou permission refusée', 'error');
+    }
+  },
+
+  async sendAttachment(type, dataUrl, name) {
+    if (!this.currentConversationId) return;
+    const list = document.getElementById('chat-messages-list');
+    list.querySelector('.empty-state')?.remove();
+    const pendingEl = this.renderBubble(
+      {
+        id: `pending-${Date.now()}`, sender_id: App.currentUser.id, body: '', created_at: null,
+        attachment_type: type, attachment_data: dataUrl, attachment_name: name
+      },
+      { pending: true }
+    );
+    list.appendChild(pendingEl);
+    list.scrollTop = list.scrollHeight;
+
+    try {
+      const res = await API.request('sendMessage', {
+        conversationId: this.currentConversationId,
+        body: '',
+        attachmentType: type,
+        attachmentData: dataUrl,
+        attachmentName: name
+      });
+      if (res.success) {
+        await this.fetchMessages(false);
+      } else if (res.networkError) {
+        pendingEl.classList.add('offline');
+        pendingEl.querySelector('.chat-ticks')?.classList.add('ticks-offline');
+        this._offlineQueue.push({
+          type: 'attachment', conversationId: this.currentConversationId,
+          attachmentType: type, attachmentData: dataUrl, attachmentName: name, pendingEl
+        });
+        Toast.show('Pas de connexion — sera envoyé automatiquement.', 'warning');
+        return;
+      } else {
+        Toast.show(res.message || 'Envoi impossible', 'error');
+      }
+    } finally {
+      if (!pendingEl.classList.contains('offline')) pendingEl.remove();
+    }
+  },
+
+  /* Rafraîchit périodiquement le badge de messages non lus, même en dehors
+     des pages chat (polling léger — cf. choix "polling" pour le temps réel) */
+  startBackgroundRefresh() {
+    this.stopBackgroundRefresh();
+    this.listPollTimer = setInterval(() => {
+      if (App.currentPage !== 'chat' && App.currentPage !== 'chat-thread') this.refreshUnreadBadge();
+    }, 15000);
+  },
+  stopBackgroundRefresh() {
+    if (this.listPollTimer) { clearInterval(this.listPollTimer); this.listPollTimer = null; }
+  },
+  async refreshUnreadBadge() {
+    const res = await API.request('getConversations');
+    if (!res.success) return;
+    const total = res.data.reduce((sum, c) => sum + (c.unread || 0), 0);
+    this.updateUnreadBadge(total);
+  },
+
+  async loadConversations() {
+    const list = document.getElementById('chat-conversations-list');
+    if (list) list.innerHTML = UI.skeletonRows(4);
+    const res = await API.request('getConversations');
+    if (!res.success) { if (list) list.innerHTML = ''; return; }
+    this._conversations = res.data;
+    this.renderConversationsList(res.data);
+  },
+
+  renderConversationsList(data) {
+    const list = document.getElementById('chat-conversations-list');
+    list.innerHTML = '';
+    if (!data.length) {
+      list.innerHTML = UI.emptyState('Aucune conversation pour le moment. Démarrez-en une depuis vos contacts !', 'contacts', 'Voir mes contacts');
+      this.updateUnreadBadge(0);
+      return;
+    }
+    let totalUnread = 0;
+    data.forEach(c => {
+      totalUnread += c.unread || 0;
+      list.appendChild(this.renderConversationItem(c));
+    });
+    this.updateUnreadBadge(totalUnread);
+  },
+
+  renderConversationItem(c) {
+    const div = document.createElement('div');
+    div.className = 'conversation-item' + (c.unread ? ' has-unread' : '');
+    const photo = c.avatar_photo;
+    const avatarClass = photo ? 'avatar-sm has-photo' : 'avatar-sm' + (c.is_group ? ' avatar-group' : '');
+    const avatarStyle = photo ? ` style="background-image:url('${photo}')"` : '';
+    const groupIcon = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+    const initials = (c.avatar && c.avatar.length <= 4) ? c.avatar : (c.title || '?').slice(0, 2).toUpperCase();
+    const time = c.last_at ? new Date(c.last_at.replace(' ', 'T')).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+    div.innerHTML = `
+      <div class="${avatarClass}"${avatarStyle}>${photo ? '' : (c.is_group ? groupIcon : initials)}</div>
+      <div class="conversation-info">
+        <p class="conversation-name">${c.is_group ? '👥 ' : ''}${c.title || 'Conversation'}</p>
+        <p class="conversation-preview">${c.last_message ? UI.escapeHtml(c.last_message) : 'Aucun message pour le moment'}</p>
+      </div>
+      <div class="conversation-meta">
+        <span class="conversation-time">${time}</span>
+        ${c.unread ? `<span class="notif-badge-inline">${c.unread}</span>` : ''}
+      </div>
+    `;
+    div.addEventListener('click', () => this.openThread(c.id, c.title, c.avatar, c.avatar_photo, !!c.is_group));
+    return div;
+  },
+
+  updateUnreadBadge(n) {
+    const badge = document.getElementById('chat-unread-badge');
+    if (!badge) return;
+    if (n > 0) { badge.textContent = n > 99 ? '99+' : n; badge.style.display = 'inline-flex'; }
+    else badge.style.display = 'none';
+  },
+
+  /* Démarre (ou récupère) une conversation 1-à-1 avec un contact, et ouvre
+     directement le fil de discussion — appelé depuis la page Contacts */
+  async openWithUser(userId) {
+    if (App.checkDemoRestriction('démarrer une conversation privée')) return;
+    const res = await API.request('startConversation', { userId });
+    if (!res.success) { Toast.show(res.message || 'Impossible de démarrer la discussion', 'error'); return; }
+    const contact = (Contacts && Array.isArray(Contacts._lastAccepted)) ? Contacts._lastAccepted.find(c => String(c.id) === String(userId)) : null;
+    await this.openThread(res.data.conversationId, contact?.name || 'Discussion', contact?.avatar, contact?.avatar_photo);
+  },
+
+  /* Ouvre (ou crée) le chat de groupe d'une tontine — réservé aux membres actifs */
+  async openTontineChat(tontineId) {
+    if (App.checkDemoRestriction('accéder au chat de groupe')) return;
+    const res = await API.request('getOrCreateTontineChat', { tontineId });
+    if (!res.success) { Toast.show(res.message || 'Chat indisponible', 'error'); return; }
+    const fallbackName = App.currentTontine?.id === tontineId ? App.currentTontine.name : 'Chat de groupe';
+    await this.openThread(res.data.conversationId, res.data.title || fallbackName, null, null, true);
+  },
+
+  async openThread(conversationId, title, avatar, avatarPhoto, isGroup = false) {
+    this.stopPolling();
+    this.currentConversationId = conversationId;
+    this.currentTitle = title || 'Discussion';
+    this.isGroup = isGroup;
+    this.lastMessageId = 0;
+    this.lastRenderedDate = null;
+    this.otherLastReadAt = null;
+    this.renderedIds = new Set();
+    this._fetchInFlight = false;
+    this._sending = false;
+    Nav.go('chat-thread', this.currentTitle);
+    RouteMemory.save('chat-thread', this.currentTitle, { conversationId, avatar, avatarPhoto, isGroup });
+
+    /* Avatar + nom dans la topbar, comme WhatsApp (icône de groupe pour un chat de tontine) */
+    const avatarEl = document.getElementById('topbar-chat-avatar');
+    const nameEl = document.getElementById('topbar-chat-name');
+    if (avatarEl && nameEl) {
+      nameEl.textContent = this.currentTitle;
+      if (isGroup) {
+        avatarEl.classList.remove('has-photo');
+        avatarEl.style.backgroundImage = '';
+        avatarEl.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+      } else if (avatarPhoto) {
+        avatarEl.classList.add('has-photo');
+        avatarEl.style.backgroundImage = `url('${avatarPhoto}')`;
+        avatarEl.textContent = '';
+      } else {
+        avatarEl.classList.remove('has-photo');
+        avatarEl.style.backgroundImage = '';
+        avatarEl.textContent = (avatar && avatar.length <= 4) ? avatar : this.currentTitle.slice(0, 2).toUpperCase();
+      }
+    }
+
+    document.getElementById('chat-messages-list').innerHTML = '<div class="empty-state small"><p>Chargement…</p></div>';
+    await this.fetchMessages(true);
+    this.pollTimer = setInterval(() => {
+      this.fetchMessages(false);
+      if (this._offlineQueue.length) this.flushOfflineQueue();
+    }, 3000);
+  },
+
+  stopPolling() {
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+  },
+
+  async fetchMessages(initial) {
+    if (!this.currentConversationId) return;
+    /* Empêche deux requêtes simultanées (ex: polling + envoi) de retomber
+       sur les mêmes messages avant que lastMessageId n'ait été mis à jour —
+       c'est ce qui causait l'affichage en double. */
+    if (this._fetchInFlight) return;
+    this._fetchInFlight = true;
+    try {
+      const res = await API.request('getMessages', {
+        conversationId: this.currentConversationId,
+        sinceId: initial ? 0 : this.lastMessageId
+      });
+      if (!res.success) return;
+      const messages = res.data.messages || [];
+      this.otherLastReadAt = res.data.otherLastReadAt || null;
+      const list = document.getElementById('chat-messages-list');
+      if (initial) { list.innerHTML = ''; this.renderedIds = new Set(); this.lastRenderedDate = null; }
+      if (!messages.length) {
+        if (initial) list.innerHTML = '<div class="empty-state small"><p>Dites bonjour 👋</p></div>';
+        this.updateTicks();
+        return;
+      }
+      const wasEmpty = list.querySelector('.empty-state');
+      if (wasEmpty) list.innerHTML = '';
+      let appended = false;
+      messages.forEach(m => {
+        this.lastMessageId = Math.max(this.lastMessageId, m.id);
+        /* Sécurité supplémentaire : ne jamais afficher deux fois le même message */
+        if (this.renderedIds.has(m.id)) return;
+        this.renderedIds.add(m.id);
+        const dateKey = m.created_at ? m.created_at.slice(0, 10) : null;
+        if (dateKey && dateKey !== this.lastRenderedDate) {
+          const sep = document.createElement('div');
+          sep.className = 'chat-date-sep';
+          sep.textContent = this.formatDateSeparator(dateKey);
+          list.appendChild(sep);
+          this.lastRenderedDate = dateKey;
+        }
+        list.appendChild(this.renderBubble(m));
+        appended = true;
+      });
+      if (appended) list.scrollTop = list.scrollHeight;
+      this.updateTicks();
+    } finally {
+      this._fetchInFlight = false;
+    }
+  },
+
+  /* "Aujourd'hui" / "Hier" / date complète — comme les séparateurs WhatsApp */
+  formatDateSeparator(dateKey) {
+    const d = new Date(dateKey + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+    if (d.getTime() === today.getTime()) return "Aujourd'hui";
+    if (d.getTime() === yesterday.getTime()) return 'Hier';
+    return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+  },
+
+  renderBubble(m, opts = {}) {
+    const div = document.createElement('div');
+    const mine = String(m.sender_id) === String(App.currentUser?.id);
+    div.className = `chat-bubble ${mine ? 'mine' : 'theirs'}${m.attachment_type ? ' attachment' : ''}${opts.pending ? ' pending' : ''}`;
+    div.dataset.id = m.id;
+    if (m.created_at) div.dataset.createdAt = m.created_at;
+    const time = m.created_at ? new Date(m.created_at.replace(' ', 'T')).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+
+    let content = '';
+    if (m.attachment_type === 'image') {
+      content = `<div class="chat-media-wrap"><img class="chat-image" src="${m.attachment_data}" alt="${UI.escapeHtml(m.attachment_name || 'Photo')}" />${opts.pending ? '<div class="chat-upload-overlay"><span class="spinner"></span></div>' : ''}</div>`;
+    } else if (m.attachment_type === 'audio') {
+      content = `<div class="chat-media-wrap"><audio class="chat-audio" controls src="${m.attachment_data}"></audio>${opts.pending ? '<div class="chat-upload-overlay"><span class="spinner"></span></div>' : ''}</div>`;
+    } else if (m.attachment_type === 'file') {
+      content = `
+        <div class="chat-file">
+          <svg width="22" height="22" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></svg>
+          <span class="chat-file-name">${UI.escapeHtml(m.attachment_name || 'Fichier')}</span>
+          ${opts.pending
+            ? '<span class="spinner"></span>'
+            : `<a href="${m.attachment_data}" download="${UI.escapeHtml(m.attachment_name || 'fichier')}" class="btn-icon" aria-label="Télécharger"><svg width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></a>`}
+        </div>`;
+    }
+    if (m.body) content += `<div>${UI.escapeHtml(m.body)}</div>`;
+
+    /* En chat de groupe, on affiche le nom de l'expéditeur au-dessus de ses
+       messages (sauf les miens) — comme dans les groupes WhatsApp */
+    if (this.isGroup && !mine && m.sender_name) {
+      content = `<div class="chat-sender-name">${UI.escapeHtml(m.sender_name)}</div>` + content;
+    }
+
+    /* Statut façon WhatsApp, uniquement sur mes propres messages :
+       ⏱ en cours d'envoi → ✓ envoyé → ✓✓ (bleu) lu par le destinataire */
+    let ticks = '';
+    if (mine) {
+      let state = 'sent';
+      if (opts.pending) state = 'pending';
+      else if (this.otherLastReadAt && m.created_at && m.created_at <= this.otherLastReadAt) state = 'read';
+      ticks = `<span class="chat-ticks ticks-${state}">${this.tickIcon(state)}</span>`;
+    }
+
+    div.innerHTML = `${content}<span class="chat-bubble-time">${time}${ticks}</span>`;
+    return div;
+  },
+
+  tickIcon(state) {
+    if (state === 'pending') {
+      return '<svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>';
+    }
+    if (state === 'read') {
+      return '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M1 12l5 5L17 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M8 12l5 5L24 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+    }
+    /* sent (une seule coche) */
+    return '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 12l5 5L19 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+  },
+
+  /* Met à jour les coches déjà affichées (sans tout re-rendre) quand le
+     destinataire lit la conversation pendant qu'on est encore à l'écran. */
+  updateTicks() {
+    if (!this.otherLastReadAt) return;
+    document.querySelectorAll('#chat-messages-list .chat-bubble.mine[data-created-at]').forEach(el => {
+      if (el.classList.contains('pending')) return;
+      if (el.dataset.createdAt <= this.otherLastReadAt) {
+        const ticksEl = el.querySelector('.chat-ticks');
+        if (ticksEl && !ticksEl.classList.contains('ticks-read')) {
+          ticksEl.className = 'chat-ticks ticks-read';
+          ticksEl.innerHTML = this.tickIcon('read');
+        }
+      }
+    });
+  },
+
+  /* Retente l'envoi de tout message resté en attente faute de réseau —
+     appelé au retour de connexion (voir l'écouteur 'online' plus bas). */
+  async flushOfflineQueue() {
+    if (!this._offlineQueue.length) return;
+    const queue = this._offlineQueue.splice(0, this._offlineQueue.length);
+    for (const item of queue) {
+      try {
+        const res = item.type === 'text'
+          ? await API.request('sendMessage', { conversationId: item.conversationId, body: item.body })
+          : await API.request('sendMessage', {
+              conversationId: item.conversationId, body: '',
+              attachmentType: item.attachmentType, attachmentData: item.attachmentData, attachmentName: item.attachmentName
+            });
+        item.pendingEl?.remove();
+        if (res.success && item.conversationId === this.currentConversationId) {
+          await this.fetchMessages(false);
+        } else if (!res.success) {
+          Toast.show("Un message n'a pas pu être envoyé, à retenter manuellement.", 'error');
+        }
+      } catch {
+        /* Toujours pas de réseau : on remet en file pour la prochaine tentative */
+        this._offlineQueue.push(item);
+      }
+    }
+  },
+
+  async send() {
+    if (App.checkDemoRestriction('envoyer des messages dans le chat')) return;
+    if (this._sending) return;
+    const input = document.getElementById('chat-message-input');
+    const body = input.value.trim();
+    if (!body || !this.currentConversationId) return;
+    this._sending = true;
+    input.value = '';
+    input.style.height = 'auto';
+    input.dispatchEvent(new Event('input'));
+
+    /* Bulle optimiste "en cours d'envoi" (horloge), remplacée par le vrai
+       message dès que le serveur confirme — exactement le comportement WhatsApp. */
+    const list = document.getElementById('chat-messages-list');
+    list.querySelector('.empty-state')?.remove();
+    const pendingEl = this.renderBubble(
+      { id: `pending-${Date.now()}`, sender_id: App.currentUser.id, body, created_at: null },
+      { pending: true }
+    );
+    list.appendChild(pendingEl);
+    list.scrollTop = list.scrollHeight;
+
+    try {
+      const res = await API.request('sendMessage', { conversationId: this.currentConversationId, body });
+      if (res.success) {
+        await this.fetchMessages(false);
+      } else if (res.networkError) {
+        /* Pas de réseau : on garde la bulle "en attente" et on met le
+           message en file pour un envoi automatique à la reconnexion. */
+        pendingEl.classList.add('offline');
+        pendingEl.querySelector('.chat-ticks')?.classList.add('ticks-offline');
+        this._offlineQueue.push({ type: 'text', conversationId: this.currentConversationId, body, pendingEl });
+        Toast.show('Pas de connexion — le message sera envoyé automatiquement.', 'warning');
+        return; /* on NE retire PAS la bulle ici (voir finally plus bas) */
+      } else {
+        Toast.show(res.message || 'Message non envoyé', 'error');
+        input.value = body;
+        input.dispatchEvent(new Event('input'));
+      }
+    } finally {
+      if (!pendingEl.classList.contains('offline')) pendingEl.remove();
+      this._sending = false;
+    }
+  }
+};
+
+const UI = {
+  fileToBase64(file, maxBytes = 2_500_000) {
+    return new Promise((resolve, reject) => {
+      if (file.size > maxBytes) {
+        reject(new Error(`Fichier trop volumineux (max ${Math.round(maxBytes / 1_000_000)} Mo)`));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Lecture du fichier impossible'));
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    });
+  },
+
+
+  /* Échappe le HTML — indispensable pour afficher en sécurité du texte
+     saisi par les utilisateurs (messages du chat, etc.) */
+  escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str ?? '';
+    return div.innerHTML;
+  },
+
+
+  /* Affiche la photo de profil d'un utilisateur sur un élément avatar
+     (div rond), avec repli automatique sur les initiales si absente. */
+  setAvatarEl(id, user) {
+    const el = document.getElementById(id);
+    if (!el || !user) return;
+    const firstname = user.firstname || '';
+    const lastname  = user.lastname  || '';
+    const initials = (user.avatar && user.avatar.length <= 4)
+      ? user.avatar
+      : ((firstname[0] || '') + (lastname[0] || '')).toUpperCase() || '?';
+    const photo = user.avatar_photo || user.avatarPhoto || null;
+    if (photo) {
+      el.style.backgroundImage = `url('${photo}')`;
+      el.classList.add('has-photo');
+      el.textContent = '';
+    } else {
+      el.style.backgroundImage = '';
+      el.classList.remove('has-photo');
+      el.textContent = initials;
+    }
+  },
+
+  /* Redimensionne/compresse une image (fichier uploadé) en base64 JPEG,
+     pour rester léger vu qu'elle est stockée directement en base (pas
+     de stockage disque persistant sur l'hébergement serverless). */
+  resizeImageToBase64(file, maxSize = 320, quality = 0.7) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Lecture du fichier impossible'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('Image invalide'));
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > height && width > maxSize) { height *= maxSize / width; width = maxSize; }
+          else if (height > maxSize) { width *= maxSize / height; height = maxSize; }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  },
+
+
+  formatAmount(n) {
+    if (!n && n !== 0) return '—';
+    return new Intl.NumberFormat('fr-FR').format(n) + ' F';
+  },
+
+  freqLabel(freq) {
+    const map = { weekly: 'Hebdo.', biweekly: 'Bi-mens.', monthly: 'Mensuel', quarterly: 'Trimestr.' };
+    return map[freq] || freq;
+  },
+
+  setLoading(id, loading, text) {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.innerHTML = loading
+      ? `<span class="spinner" style="width:20px;height:20px;border-width:2px;margin:0"></span> ${text}`
+      : text;
+  },
+
+  tontineCard(t) {
+    const div = document.createElement('div');
+    div.className = 'tontine-card';
+    const progress = t.totalTours ? (t.currentTour / t.totalTours) * 100 : 0;
+    const iconHtml = t.icon
+      ? `<div class="tontine-card-icon has-photo" style="background-image:url('${t.icon}')"></div>`
+      : '';
+    div.innerHTML = `
+      <div class="tontine-card-header">
+        <span class="tontine-card-name">${iconHtml}${UI.escapeHtml(t.name)}</span>
+        <span class="badge ${t.badge}">${t.badgeText}</span>
+      </div>
+      <div class="tontine-card-body">
+        <div class="tontine-card-stat"><span>Mise</span><span>${UI.formatAmount(t.amount)}</span></div>
+        <div class="tontine-card-stat"><span>Membres</span><span>${t.currentMembers}/${t.maxMembers}</span></div>
+        <div class="tontine-card-stat"><span>Tour</span><span>${t.currentTour}/${t.totalTours}</span></div>
+        <div class="tontine-card-stat"><span>Rôle</span><span>${t.userRole === 'admin' ? '👑 Admin' : '👤 Membre'}</span></div>
+      </div>
+      <div class="tontine-card-progress"><div class="tontine-card-bar" style="width:${progress}%"></div></div>
+    `;
+    div.addEventListener('click', () => TontineDetail.open(t));
+    return div;
+  },
+
+  activityItem(entry) {
+    const div = document.createElement('div');
+    div.className = 'activity-item';
+    const icons = { payment: '💰', admin: '📢', member: '👤', system: '🔄' };
+    div.innerHTML = `
+      <div class="activity-icon">${icons[entry.type] || '📋'}</div>
+      <div class="activity-text"><strong>${entry.action}</strong><br><span>${entry.detail}</span></div>
+      <span class="activity-time">${entry.time}</span>
+    `;
+    return div;
+  },
+
+  emptyState(text, page, btnText) {
+    return `<div class="empty-state">
+      <svg viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2" opacity="0.3"/><path d="M22 32h20M32 22v20" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      <p>${text}</p>
+      ${page ? `<button class="btn-primary btn-sm" data-page="${page}">${btnText}</button>` : ''}
+    </div>`;
+  },
+
+  /* Génère n lignes "skeleton" (avatar + texte) pour montrer que des
+     données sont en cours de chargement — dashboard, journal, contacts,
+     conversations, notifications, etc. */
+  skeletonRows(n = 3) {
+    let html = '';
+    for (let i = 0; i < n; i++) {
+      html += `
+        <div class="skeleton-row">
+          <div class="skeleton skeleton-avatar"></div>
+          <div class="skeleton-lines">
+            <div class="skeleton skeleton-line w-60"></div>
+            <div class="skeleton skeleton-line w-40"></div>
+          </div>
+        </div>`;
+    }
+    return html;
+  },
+
+  skeletonCards(n = 2) {
+    let html = '';
+    for (let i = 0; i < n; i++) html += `<div class="skeleton skeleton-card"></div>`;
+    return html;
+  },
+
+  copyText(text) {
+    navigator.clipboard?.writeText(text).then(() => {
+      Toast.show('Copié dans le presse-papier !', 'success');
+    }).catch(() => {
+      /* Fallback */
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      el.remove();
+      Toast.show('Copié !', 'success');
+    });
+  },
+
+  /* Exporte une liste d'objets en fichier CSV (s'ouvre nativement dans Excel).
+     headers: [{key: 'name', label: 'Nom'}, ...] */
+  exportCSV(filename, rows, headers) {
+    if (!rows || !rows.length) { Toast.show('Rien à exporter.', 'warning'); return; }
+    const escapeCell = (val) => {
+      const s = String(val ?? '');
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [headers.map(h => escapeCell(h.label)).join(';')];
+    rows.forEach(row => {
+      lines.push(headers.map(h => escapeCell(row[h.key])).join(';'));
+    });
+    /* BOM UTF-8 pour qu'Excel affiche correctement les accents français */
+    const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    Toast.show('Export téléchargé !', 'success');
+  },
+
+  updateUserInfo() {
+    const u = App.currentUser;
+    if (!u) return;
+
+    /* Normaliser les champs (API peut retourner first_name ou firstname) */
+    const firstname = u.firstname || u.first_name || '';
+    const lastname  = u.lastname  || u.last_name  || '';
+    const email     = u.email || '';
+    const initials  = u.avatar && u.avatar.length <= 4
+      ? u.avatar
+      : ((firstname[0] || '') + (lastname[0] || '')).toUpperCase() || '?';
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+    set('greeting-name',   firstname || 'Utilisateur');
+    UI.setAvatarEl('dashboard-avatar', u);
+    UI.setAvatarEl('dropdown-avatar', u);
+    set('dropdown-name',   `${firstname} ${lastname}`.trim());
+    set('dropdown-email',  email);
+
+    /* Mettre à jour le profil si on est sur cette page */
+    if (typeof Profile !== 'undefined') Profile.load();
+  }
+};
+
+/* ═══════════════════════════════ MODAL ═══════════════════════════════ */
+const Modal = {
+  _pushedState: false,
+  _ignoreNextPopstate: false,
+  _closingFromPopstate: false,
+
+  open(title, bodyHTML, footerHTML = '') {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = bodyHTML;
+    document.getElementById('modal-footer').innerHTML = footerHTML;
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    /* Pousse une entrée d'historique dédiée : un appui sur le retour
+       physique/geste ferme d'abord le modal, comme dans toute app native,
+       au lieu de naviguer la page qui se trouve derrière. */
+    if (!this._pushedState) {
+      try { history.pushState({ tfModal: true }, '', location.href); } catch {}
+      this._pushedState = true;
+    }
+  },
+
+  close() {
+    document.getElementById('modal-overlay').classList.add('hidden');
+    if (this._pushedState) {
+      this._pushedState = false;
+      if (!this._closingFromPopstate) {
+        /* Fermeture "manuelle" (bouton, clic hors modal...) : on consomme
+           nous-mêmes l'entrée d'historique poussée à l'ouverture, sinon un
+           prochain retour ne ferait rien de visible. */
+        this._ignoreNextPopstate = true;
+        try { history.back(); } catch {}
+      }
+    }
+    this._closingFromPopstate = false;
+  },
+
+  confirm(title, message, confirmText = 'Confirmer') {
+    return new Promise(resolve => {
+      this.open(title,
+        `<p style="font-size:var(--fs-sm);color:var(--color-text-2)">${message}</p>`,
+        `<button class="btn-primary btn-full" id="modal-confirm-btn">${confirmText}</button>
+         <button class="btn-ghost btn-full" onclick="Modal.close()">Annuler</button>`
+      );
+      document.getElementById('modal-confirm-btn').addEventListener('click', () => {
+        this.close();
+        resolve(true);
+      });
+      document.getElementById('modal-overlay').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('modal-overlay')) { this.close(); resolve(false); }
+      }, { once: true });
+    });
+  },
+
+  showDemoRestriction(actionLabel = 'effectuer cette opération') {
+    this.open('Accès réservé', `
+      <div class="demo-restricted-body">
+        <div class="demo-restricted-icon">🔒</div>
+        <h3 class="demo-restricted-title">Fonctionnalité réservée aux membres</h3>
+        <p class="demo-restricted-desc">
+          Vous explorez actuellement Tontines Facile en <strong>mode démo</strong> avec des données d'exemple.<br/>
+          Pour <strong>${actionLabel}</strong>, vous devez vous connecter ou créer un compte réel.
+        </p>
+        <div class="demo-highlight-box">
+          ✨ <strong>100% gratuit et instantané :</strong> Créez votre compte en moins d'une minute pour lancer votre vraie tontine.
+        </div>
+      </div>
+    `, `
+      <button class="btn-primary btn-full" id="btn-modal-demo-register" style="margin-bottom:8px">✨ Créer mon compte gratuit</button>
+      <button class="btn-outline btn-full" id="btn-modal-demo-login" style="margin-bottom:8px">Se connecter</button>
+      <button class="btn-ghost btn-full" onclick="Modal.close()">Continuer la visite démo</button>
+    `);
+
+    document.getElementById('btn-modal-demo-register')?.addEventListener('click', () => {
+      Modal.close();
+      Auth.exitDemoToAuth('register');
+    });
+
+    document.getElementById('btn-modal-demo-login')?.addEventListener('click', () => {
+      Modal.close();
+      Auth.exitDemoToAuth('login');
+    });
+  }
+};
+
+/* ═══════════════════════════════ TOAST ═══════════════════════════════ */
+const Toast = {
+  show(message, type = 'info', duration = 3500) {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+    toast.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ️'}</span><span class="toast-text">${message}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.classList.add('fade-out');
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+};
+
+/* ═══════════════════════════════ LOCAL STORAGE ═══════════════════════════════ */
+const Storage = {
+  save(key, value) {
+    try { localStorage.setItem(`tf_${key}`, JSON.stringify(value)); } catch {}
+  },
+  load(key) {
+    try { return JSON.parse(localStorage.getItem(`tf_${key}`)); } catch { return null; }
+  },
+  remove(key) {
+    try { localStorage.removeItem(`tf_${key}`); } catch {}
+  }
+};
+
+/* ═══════════════════════════════ ROUTE MEMORY ═══════════════════════════════
+   Retient la dernière page visitée (et son contexte : ID de tontine ou de
+   conversation) pour qu'un rafraîchissement (F5) rouvre la même page au lieu
+   de toujours revenir au tableau de bord. Stocké en sessionStorage : propre
+   à l'onglet, effacé à la fermeture. */
+const RouteMemory = {
+  KEY: 'tf_last_route',
+  save(page, title = '', context = null) {
+    try { sessionStorage.setItem(this.KEY, JSON.stringify({ page, title, context })); } catch {}
+  },
+  load() {
+    try { return JSON.parse(sessionStorage.getItem(this.KEY)); } catch { return null; }
+  },
+  clear() {
+    try { sessionStorage.removeItem(this.KEY); } catch {}
+  }
+};
+
+/* ═══════════════════════════════ PWA MANIFEST ═══════════════════════════════ */
+function setupPWA() {
+  /* Inline manifest */
+  const manifest = {
+    name: 'Tontines Facile',
+    short_name: 'TontinesFacile',
+    description: 'Gérez vos tontines en toute transparence',
+    start_url: '/index.html',
+    display: 'standalone',
+    background_color: '#0f6b4a',
+    theme_color: '#0f6b4a',
+    orientation: 'portrait',
+    icons: [
+      { src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="%230f6b4a"/><circle cx="96" cy="60" r="32" stroke="white" stroke-width="8" fill="none"/><circle cx="44" cy="140" r="24" stroke="white" stroke-width="8" fill="none"/><circle cx="148" cy="140" r="24" stroke="white" stroke-width="8" fill="none"/><line x1="67" y1="80" x2="55" y2="117" stroke="white" stroke-width="8" stroke-linecap="round"/><line x1="125" y1="80" x2="137" y2="117" stroke="white" stroke-width="8" stroke-linecap="round"/><line x1="68" y1="140" x2="124" y2="140" stroke="white" stroke-width="8" stroke-linecap="round"/></svg>', sizes: '192x192', type: 'image/svg+xml' }
+    ]
+  };
+  const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+  document.getElementById('manifest-link').href = URL.createObjectURL(blob);
+}
+
+/* ═══════════════════════════════ EVENT LISTENERS ═══════════════════════════════ */
+const PAGE_TITLES = {
+  invite: 'Inviter', contacts: 'Contacts', chat: 'Messages',
+  terms: "Conditions d'utilisation", privacy: 'Confidentialité',
+  transactions: 'Transactions', 'audit-log': 'Journal'
+};
+
+/* Navigue vers une page "simple" (sans contexte supplémentaire type ID) en
+   chargeant ses données si besoin — utilisé par les clics [data-page] ET
+   par la restauration de page après un rafraîchissement (F5). */
+function goToPage(page) {
+  if (page === 'transactions') Transactions.load();
+  if (page === 'audit-log') AuditLog.load();
+  if (page === 'profile') Profile.load();
+  if (page === 'invite') Invite.loadTontines();
+  if (page === 'contacts') Contacts.load();
+  if (page === 'chat') Chat.loadConversations();
+  Nav.go(page, PAGE_TITLES[page] || '');
+}
+
+function setupEventListeners() {
+  /* Global data-page click handler */
+  document.addEventListener('click', (e) => {
+    const pageTarget = e.target.closest('[data-page]');
+    if (pageTarget) {
+      const page = pageTarget.dataset.page;
+      if (page) {
+        e.preventDefault();
+        Nav.closeMenu();
+        goToPage(page);
+      }
+    }
+  });
+
+  /* Back button */
+  document.getElementById('btn-back').addEventListener('click', () => Nav.back());
+
+  /* Recherche parmi les membres d'une tontine (visible seulement si >6 membres) */
+  document.getElementById('search-members')?.addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#detail-members-list .member-item').forEach(row => {
+      row.style.display = !q || (row.dataset.searchName || '').includes(q) ? '' : 'none';
+    });
+  });
+
+  /* Passage au tour suivant (versement de la cagnotte) */
+  document.getElementById('btn-next-tour')?.addEventListener('click', () => TontineDetail.advanceTour());
+
+  /* Bannière mode démo */
+  document.getElementById('btn-banner-register')?.addEventListener('click', () => {
+    Auth.exitDemoToAuth('register');
+  });
+  document.getElementById('btn-banner-login')?.addEventListener('click', () => {
+    Auth.exitDemoToAuth('login');
+  });
+
+  /* Export CSV/Excel — câblé une seule fois ; lit les données à jour au clic */
+  document.getElementById('btn-export-transactions')?.addEventListener('click', () => {
+    UI.exportCSV('transactions.csv', Transactions.data || [], [
+      { key: 'name', label: 'Nom' },
+      { key: 'tontine', label: 'Tontine' },
+      { key: 'type', label: 'Type' },
+      { key: 'status', label: 'Statut' },
+      { key: 'amount', label: 'Montant (FCFA)' },
+      { key: 'date', label: 'Date' }
+    ]);
+  });
+  document.getElementById('btn-export-audit-log')?.addEventListener('click', () => {
+    UI.exportCSV('journal.csv', AuditLog.data || [], [
+      { key: 'time', label: 'Date' },
+      { key: 'user', label: 'Utilisateur' },
+      { key: 'action', label: 'Action' },
+      { key: 'detail', label: 'Détail' },
+      { key: 'type', label: 'Type' }
+    ]);
+  });
+
+  /* Menu toggle */
+  document.getElementById('btn-menu').addEventListener('click', () => {
+    const menu = document.getElementById('dropdown-menu');
+    const overlay = document.getElementById('dropdown-overlay');
+    menu.classList.toggle('hidden');
+    overlay.classList.toggle('hidden');
+  });
+
+  /* Close menu on overlay click */
+  document.getElementById('dropdown-overlay').addEventListener('click', () => Nav.closeMenu());
+
+  /* Notification bell */
+  document.getElementById('btn-notif').addEventListener('click', async () => {
+    Modal.open('Notifications', UI.skeletonRows(4));
+    const res = await API.request('getNotifications');
+    const notifs = res.success ? (res.data?.notifications ?? []) : [];
+    if (!notifs.length) {
+      Modal.open('Notifications', UI.emptyState('Aucune notification pour le moment'));
+      return;
+    }
+    const icons = {
+      payment_reminder: '💰', member: '👤', payment_confirmed: '✅', admin: '📢', system: '🔄',
+      join_request: '🙋', approved: '🎉', rejected: '🚫', disbursement: '🎁',
+      contact_request: '🤝', contact_accepted: '🤝',
+      payment_declared: '🕒', payment_rejected: '⚠️', role_changed: '👑'
+    };
+    const html = notifs.map((n, i) => `
+      <div class="activity-item activity-clickable" data-notif-index="${i}" style="cursor:pointer">
+        <div class="activity-icon">${icons[n.type] || '🔔'}</div>
+        <div class="activity-text"><strong>${n.title}</strong><br><span>${n.body || ''}</span></div>
+      </div>`).join('');
+    Modal.open('Notifications', html);
+
+    /* Marque tout comme lu et rafraîchit le badge */
+    API.request('markNotificationsRead').then(() => {
+      const badge = document.getElementById('notif-badge');
+      if (badge) badge.style.display = 'none';
+    });
+
+    /* Navigation contextuelle au clic */
+    document.querySelectorAll('[data-notif-index]').forEach(el => {
+      el.addEventListener('click', () => {
+        const n = notifs[parseInt(el.dataset.notifIndex, 10)];
+        Modal.close();
+        if (!n) return;
+        if (n.type === 'join_request' && n.tontine_id) {
+          TontineDetail.openById(n.tontine_id, true, n.ref_id);
+        } else if (n.tontine_id) {
+          TontineDetail.openById(n.tontine_id);
+        } else if (n.type === 'contact_request' || n.type === 'contact_accepted') {
+          Nav.go('contacts');
+          Contacts.load();
+        }
+      });
+    });
+  });
+
+  /* Modal close */
+  document.getElementById('modal-close').addEventListener('click', () => Modal.close());
+
+  /* Browser back button */
+  window.addEventListener('popstate', () => {
+    if (Modal._ignoreNextPopstate) { Modal._ignoreNextPopstate = false; return; }
+    const modalOverlay = document.getElementById('modal-overlay');
+    if (modalOverlay && !modalOverlay.classList.contains('hidden')) {
+      Modal._closingFromPopstate = true;
+      Modal.close();
+      return;
+    }
+    Nav.back(true);
+  });
+
+  /* Renvoi automatique des messages restés en attente faute de réseau */
+  window.addEventListener('online', () => Chat.flushOfflineQueue());
+}
+
+/* ═══════════════════════════════ INIT ═══════════════════════════════ */
+
+/* Restaure la page où se trouvait l'utilisateur avant un rafraîchissement.
+   Retombe silencieusement sur le dashboard si le contexte est absent/invalide
+   (ex: tontine supprimée entre-temps). */
+async function restoreRoute(route) {
+  if (!route || !route.page || route.page === 'auth') { Nav.go('dashboard'); return; }
+  try {
+    if (route.page === 'tontine-detail' && route.context?.tontineId) {
+      await TontineDetail.openById(route.context.tontineId);
+      if (!document.getElementById('page-tontine-detail')?.classList.contains('active')) Nav.go('dashboard');
+      return;
+    }
+    if (route.page === 'chat-thread' && route.context?.conversationId) {
+      await Chat.openThread(route.context.conversationId, route.title, route.context.avatar, route.context.avatarPhoto, !!route.context.isGroup);
+      if (!document.getElementById('page-chat-thread')?.classList.contains('active')) Nav.go('dashboard');
+      return;
+    }
+    const pageEl = document.getElementById(`page-${route.page}`);
+    if (!pageEl) { Nav.go('dashboard'); return; }
+    goToPage(route.page);
+  } catch (err) {
+    console.error('Restauration de page échouée:', err);
+    Nav.go('dashboard');
+  }
+}
+
+async function init() {
+
+  /* 0. Lien d'invitation direct (ex: tontine-iota.vercel.app/join/TF-ABC123) */
+  const joinMatch = window.location.pathname.match(/\/join\/([A-Za-z0-9-]+)/);
+  const pendingJoinCode = joinMatch ? decodeURIComponent(joinMatch[1]).toUpperCase() : null;
+
+  /* 1. Vérifier la session IMMÉDIATEMENT avant tout */
+  const savedUser  = Storage.load('user');
+  const savedToken = Storage.load('token');
+
+  /* 2. Initialiser l'UI */
+  setupPWA();
+  setupEventListeners();
+  Settings.applyStored();
+  Auth.init();
+  Profile.init();
+  Settings.init();
+  CreateTontine.init();
+  JoinTontine.init();
+  Invite.init(); /* sans await - ne bloque pas */
+  Contacts.init();
+  Chat.init();
+
+  /* 3. Déterminer et activer la bonne page AVANT d'afficher l'app,
+        pour éviter le flash du formulaire de connexion au démarrage */
+  const isLoggedIn = !!(savedUser && savedToken);
+  const savedRoute = isLoggedIn ? RouteMemory.load() : null;
+  if (isLoggedIn) {
+    App.currentUser = savedUser;
+    App.token = savedToken;
+    if (App.isDemoMode()) {
+      document.getElementById('demo-banner')?.classList.remove('hidden');
+    }
+    UI.updateUserInfo();
+    await restoreRoute(savedRoute);
+  } else {
+    Nav.go('auth');
+  }
+
+  /* 4. Splash screen */
+  await new Promise(resolve => setTimeout(resolve, 2200));
+  const splash = document.getElementById('splash-screen');
+  if (splash) {
+    splash.classList.add('fade-out');
+    setTimeout(() => splash.classList.add('hidden'), 500);
+  }
+  document.getElementById('app').classList.remove('hidden');
+
+  /* 5. Charger les données du dashboard en arrière-plan (l'écran
+        dashboard est déjà actif, donc aucun flash de l'écran login) */
+  if (isLoggedIn) {
+    Dashboard.load().catch(err => console.error('Dashboard.load failed:', err));
+    Chat.startBackgroundRefresh();
+  }
+
+  /* 5. Si l'app a été ouverte via un lien d'invitation, pré-remplir et lancer la recherche */
+  if (pendingJoinCode) {
+    Nav.go('join-tontine');
+    const input = document.getElementById('join-code');
+    if (input) input.value = pendingJoinCode;
+    const res = await API.request('searchTontine', { code: pendingJoinCode });
+    if (res.success) {
+      const t = res.data;
+      document.getElementById('preview-name').textContent    = t.name;
+      document.getElementById('preview-amount').textContent  = UI.formatAmount(t.amount);
+      document.getElementById('preview-members').textContent = t.members;
+      document.getElementById('preview-admin').textContent   = t.admin;
+      document.getElementById('preview-start').textContent   = t.start;
+      document.getElementById('preview-desc').textContent    = t.desc || '';
+      document.getElementById('join-preview')?.classList.remove('hidden');
+    } else {
+      Toast.show(res.message || 'Tontine introuvable. Vérifiez le code.', 'error');
+    }
+  }
+}
+
+/* Start the app when DOM is ready */
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    init().catch(err => {
+      console.error('Init failed:', err);
+      document.getElementById('splash-screen').style.display = 'none';
+      document.getElementById('app').classList.remove('hidden');
+      Nav.go('auth');
+    });
+  } catch(e) {
+    console.error('Crash:', e);
+    document.getElementById('splash-screen').style.display = 'none';
+    document.getElementById('app').classList.remove('hidden');
+    Nav.go('auth');
+  }
+});
+/* ══════════════════════════════════════════════════════════════════
+   APP.JS PATCH — Corrections & améliorations intégrées
+   Appliqué après le chargement initial de improvements.js
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Override Auth.init pour ajouter rate limiting + validation renforcée */
+const _origAuthInit = Auth.init.bind(Auth);
+Auth.init = function() {
+  _origAuthInit();
+
+  /* Patch login : rate limiting + validation email */
+  const loginBtn = document.getElementById('btn-login');
+  if (loginBtn) {
+    loginBtn.replaceWith(loginBtn.cloneNode(true));
+    document.getElementById('btn-login').addEventListener('click', async () => {
+      const email = document.getElementById('login-email').value.trim();
+      const pass  = document.getElementById('login-password').value;
+
+      if (!email || !pass) { Toast.show('Veuillez remplir tous les champs', 'error'); return; }
+      if (typeof Validate !== 'undefined' && !Validate.email(email) && !email.includes('+')) {
+        if (!/\d/.test(email)) { /* allow phone number */
+          Toast.show('Format d\'email invalide', 'error'); return;
+        }
+      }
+      if (typeof RateLimit !== 'undefined' && !RateLimit.check('login')) return;
+
+      UI.setLoading('btn-login', true, 'Connexion...');
+      const res = await API.request('login', { email, password: pass });
+      UI.setLoading('btn-login', false, 'Se connecter');
+      if (res.success) {
+        Auth.onLogin(res);
+        if (typeof PushNotifications !== 'undefined') {
+          setTimeout(() => PushNotifications.request(), 2000);
+        }
+      } else {
+        Toast.show(res.message || 'Identifiants incorrects', 'error');
+        if (typeof Validate !== 'undefined') Validate.showError('login-password', 'Mot de passe incorrect');
+      }
+    });
+  }
+
+  /* Patch register : validation renforcée + email de bienvenue */
+  const regBtn = document.getElementById('btn-register');
+  if (regBtn) {
+    regBtn.replaceWith(regBtn.cloneNode(true));
+    document.getElementById('btn-register').addEventListener('click', async () => {
+      const firstname = document.getElementById('reg-firstname').value.trim();
+      const lastname  = document.getElementById('reg-lastname').value.trim();
+      const email     = document.getElementById('reg-email').value.trim();
+      const phone     = document.getElementById('reg-phone').value.trim();
+      const password  = document.getElementById('reg-password').value;
+
+      if (typeof Validate !== 'undefined') Validate.clearErrors();
+
+      let valid = true;
+      if (!firstname || firstname.length < 2) {
+        if (typeof Validate !== 'undefined') Validate.showError('reg-firstname', 'Minimum 2 caractères');
+        valid = false;
+      }
+      if (!lastname || lastname.length < 2) {
+        if (typeof Validate !== 'undefined') Validate.showError('reg-lastname', 'Minimum 2 caractères');
+        valid = false;
+      }
+      if (!email || (typeof Validate !== 'undefined' && !Validate.email(email))) {
+        if (typeof Validate !== 'undefined') Validate.showError('reg-email', 'Email invalide');
+        valid = false;
+      }
+      if (!password || password.length < 8) {
+        if (typeof Validate !== 'undefined') Validate.showError('reg-password', 'Minimum 8 caractères');
+        valid = false;
+      }
+      if (phone && typeof Validate !== 'undefined' && !Validate.phone(phone)) {
+        Validate.showError('reg-phone', 'Format invalide (ex: +225 07 00 00 00)');
+        valid = false;
+      }
+      if (!valid) return;
+      if (typeof RateLimit !== 'undefined' && !RateLimit.check('register')) return;
+
+      UI.setLoading('btn-register', true, 'Création...');
+      const res = await API.request('register', { firstname, lastname, email, phone, password });
+      UI.setLoading('btn-register', false, 'Créer mon compte');
+      if (res.success) {
+        Auth.onLogin(res);
+        /* Afficher onboarding pour les nouveaux */
+        setTimeout(() => { if (typeof Onboarding !== 'undefined') Onboarding.show(); }, 1500);
+      } else {
+        Toast.show(res.message || 'Erreur lors de l\'inscription', 'error');
+      }
+    });
+  }
+};
+
+/* Override Auth.logout → confirmation simple */
+const _origLogout = Auth.logout.bind(Auth);
+Auth.logout = function(force = false) {
+  if (force) { _origLogout(); return; }
+  if (confirm('Voulez-vous vraiment vous déconnecter ?')) {
+    _origLogout();
+  }
+};
+
+/* Override Dashboard.load pour actualiser le badge notifications */
+const _origDashLoad = Dashboard.load.bind(Dashboard);
+Dashboard.load = async function() {
+  await _origDashLoad();
+  /* Update notification count */
+  const nRes = await API.request('getNotifications');
+  if (nRes.success) {
+    const unread = nRes.data?.unread || 0;
+    const badge  = document.getElementById('notif-badge');
+    if (badge) {
+      badge.textContent = unread;
+      badge.style.display = unread > 0 ? 'flex' : 'none';
+    }
+  }
+};
+
+/* Override TontineDetail.recordPayment pour notif locale après confirmation */
+const _origRecord = TontineDetail.recordPayment.bind(TontineDetail);
+TontineDetail.recordPayment = async function(memberId, memberName) {
+  await _origRecord(memberId, memberName);
+  if (typeof PushNotifications !== 'undefined') {
+    PushNotifications.showLocal('Paiement confirmé', `${memberName} — mise enregistrée`, '✅');
+  }
+  if (typeof Logger !== 'undefined') {
+    Logger.info('Paiement enregistré', { memberId, memberName, tontineId: App.currentTontine?.id });
+  }
+};
+
+/* Override Nav.go pour logger la navigation */
+const _origNavGo = Nav.go.bind(Nav);
+Nav.go = function(page, title = '') {
+  _origNavGo(page, title);
+  if (typeof Logger !== 'undefined') Logger.info(`Navigation → ${page}`);
+};
+
+/* Override CreateTontine btn pour validation renforcée */
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    const createBtn = document.getElementById('btn-create-tontine');
+    if (createBtn) {
+      const newBtn = createBtn.cloneNode(true);
+      createBtn.parentNode.replaceChild(newBtn, createBtn);
+      newBtn.addEventListener('click', async () => {
+        if (App.checkDemoRestriction('créer une tontine')) return;
+        const name   = document.getElementById('create-name')?.value.trim();
+        const amount = document.getElementById('create-amount')?.value;
+
+        if (typeof Validate !== 'undefined') Validate.clearErrors();
+        let valid = true;
+        if (!name || name.length < 3) {
+          if (typeof Validate !== 'undefined') Validate.showError('create-name', 'Minimum 3 caractères');
+          valid = false;
+        }
+        if (!amount || isNaN(amount) || Number(amount) < 100) {
+          if (typeof Validate !== 'undefined') Validate.showError('create-amount', 'Montant minimum : 100 FCFA');
+          valid = false;
+        }
+        if (!valid) return;
+
+        const frequency  = document.getElementById('create-frequency')?.value;
+        const maxMembers = parseInt(document.getElementById('create-max-members')?.value) || 10;
+        const startDate  = document.getElementById('create-start-date')?.value;
+        const desc       = document.getElementById('create-desc')?.value.trim();
+
+        if (maxMembers < 2 || maxMembers > 50) {
+          if (typeof Validate !== 'undefined') Validate.showError('create-max-members', 'Entre 2 et 50 membres');
+          return;
+        }
+
+        UI.setLoading('btn-create-tontine', true, 'Création en cours...');
+        const res = await API.request('createTontine', {
+          name, description: desc, amount: Number(amount), frequency,
+          maxMembers, startDate,
+          requireApproval: document.getElementById('create-approval')?.checked,
+          publicLog:       document.getElementById('create-public-log')?.checked,
+          randomOrder:     document.getElementById('create-random-order')?.checked,
+          penalties:       document.getElementById('create-penalties')?.checked
+        });
+        UI.setLoading('btn-create-tontine', false, 'Créer la tontine');
+
+        if (res.success) {
+          Toast.show(`✨ Tontine "${name}" créée !`, 'success');
+          if (typeof PushNotifications !== 'undefined') {
+            PushNotifications.showLocal('Tontine créée !', `"${name}" est prête. Invitez vos membres.`, '🌿');
+          }
+          /* Reset form */
+          ['create-name','create-desc','create-amount'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.value = '';
+          });
+          await Dashboard.load();
+          setTimeout(() => TontineDetail.open(res.data), 500);
+        } else {
+          Toast.show(res.message || 'Erreur lors de la création', 'error');
+        }
+      });
+    }
+
+    /* Patch join tontine : validation code */
+    const joinSearchBtn = document.getElementById('btn-join-search');
+    if (joinSearchBtn) {
+      const newJoinBtn = joinSearchBtn.cloneNode(true);
+      joinSearchBtn.parentNode.replaceChild(newJoinBtn, joinSearchBtn);
+      newJoinBtn.addEventListener('click', async () => {
+        const code = document.getElementById('join-code')?.value.trim().toUpperCase();
+        if (!code) { Toast.show('Entrez un code d\'invitation', 'error'); return; }
+        if (typeof Validate !== 'undefined' && !Validate.code(code)) {
+          Toast.show('Format invalide. Ex: TF-ABC123', 'error');
+          if (typeof Validate !== 'undefined') Validate.showError('join-code', 'Format: TF-XXXXXX');
+          return;
+        }
+        UI.setLoading('btn-join-search', true, 'Recherche...');
+        const res = await API.request('searchTontine', { code });
+        UI.setLoading('btn-join-search', false, 'Rechercher');
+        if (res.success) {
+          const t = res.data;
+          document.getElementById('preview-name').textContent    = t.name;
+          document.getElementById('preview-amount').textContent  = UI.formatAmount(t.amount);
+          document.getElementById('preview-members').textContent = t.members;
+          document.getElementById('preview-admin').textContent   = t.admin;
+          document.getElementById('preview-start').textContent   = t.start;
+          document.getElementById('preview-desc').textContent    = t.desc || '';
+          document.getElementById('join-preview').classList.remove('hidden');
+        } else {
+          Toast.show('Tontine introuvable. Vérifiez le code.', 'error');
+          if (typeof Validate !== 'undefined') Validate.showError('join-code', 'Code non trouvé');
+        }
+      });
+    }
+
+    /* Export buttons dans transactions */
+    const txExportBtn = document.getElementById('btn-export-tx-csv');
+    if (txExportBtn) {
+      txExportBtn.addEventListener('click', () => {
+        if (typeof Exporter !== 'undefined') Exporter.exportTransactionsCSV(Transactions.data || []);
+      });
+    }
+
+  }, 3000);
+});
+
+/* UI helper: togglePassword */
+UI.togglePassword = function(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+};
+
+console.log('[Tontines Facile] app.js patch chargé ✓');

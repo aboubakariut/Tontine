@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "functions": {
+    "api/api.php": {
+      "runtime": "vercel-php@0.7.2",
+      "maxDuration": 30
+    }
+  },
+  "routes": [
+    { "src": "/api\\.php(.*)", "dest": "/api/api.php" },
+    { "src": "/api/api\\.php(.*)", "dest": "/api/api.php" },
+    { "src": "/sw\\.js", "dest": "/sw.js", "headers": { "Service-Worker-Allowed": "/", "Cache-Control": "no-cache, no-store, must-revalidate" } },
+    { "src": "/manifest\\.json", "dest": "/manifest.json", "headers": { "Content-Type": "application/manifest+json", "Cache-Control": "public, max-age=86400" } },
+    { "src": "/style\\.css", "dest": "/style.css", "headers": { "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800" } },
+    { "src": "/js/(.*)", "dest": "/js/$1", "headers": { "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800" } },
+    { "src": "/app\\.js", "dest": "/app.js", "headers": { "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800" } },
+    { "src": "/improvements\\.js", "dest": "/improvements.js", "headers": { "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800" } },
+    { "src": "/icons/(.*)", "dest": "/icons/$1", "headers": { "Cache-Control": "public, max-age=2592000, immutable" } },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/api/api.php",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "https://tontine-iota.vercel.app" },
+        { "key": "Access-Control-Allow-Methods", "value": "POST, GET, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" },
+        { "key": "Access-Control-Max-Age", "value": "86400" }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "geolocation=(), microphone=(self), camera=(self), notifications=(self)" },
+        { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains; preload" }
+      ]
+    }
+  ]
+}
