@@ -588,8 +588,10 @@ const AuditFilter = {
     this.allEntries = entries;
     this.render(entries);
 
-    /* Inject filter UI */
+    /* Inject filter UI seulement s'il n'existe pas déjà */
     const list = document.getElementById('audit-log-list');
+    if (!list || document.querySelector('.audit-filter-bar')) return;
+
     const filterBar = document.createElement('div');
     filterBar.className = 'audit-filter-bar';
     filterBar.innerHTML = `
@@ -623,13 +625,13 @@ const AuditFilter = {
     });
 
     /* Date + text filter */
-    document.getElementById('btn-audit-search').addEventListener('click', () => this.apply());
-    document.getElementById('audit-search').addEventListener('input', () => this.apply());
+    document.getElementById('btn-audit-search')?.addEventListener('click', () => this.apply());
+    document.getElementById('audit-search')?.addEventListener('input', () => this.apply());
 
     /* Exports */
-    document.getElementById('btn-export-csv').addEventListener('click', () =>
+    document.getElementById('btn-export-csv')?.addEventListener('click', () =>
       Exporter.exportLogCSV(this.allEntries));
-    document.getElementById('btn-export-pdf').addEventListener('click', () =>
+    document.getElementById('btn-export-pdf')?.addEventListener('click', () =>
       Exporter.exportAuditPDF(this.allEntries, App.currentTontine?.name));
   },
 
@@ -642,7 +644,23 @@ const AuditFilter = {
     let filtered = this.allEntries;
     if (type !== 'all')  filtered = filtered.filter(e => e.type === type);
     if (search) filtered = filtered.filter(e =>
-      (e.action + e.detail + e.user).toLowerCase().includes(search));
+      ((e.action || '') + ' ' + (e.detail || '') + ' ' + (e.user || '')).toLowerCase().includes(search));
+
+    if (from || to) {
+      const fromTs = from ? new Date(from + 'T00:00:00').getTime() : 0;
+      const toTs   = to   ? new Date(to + 'T23:59:59').getTime()   : Infinity;
+      filtered = filtered.filter(e => {
+        if (!e.time) return true;
+        // Parsing format dd/mm/YYYY HH:MM ou timestamp
+        const parts = e.time.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+        if (parts) {
+          const entryDate = new Date(`${parts[3]}-${parts[2]}-${parts[1]}`).getTime();
+          return entryDate >= fromTs && entryDate <= toTs;
+        }
+        return true;
+      });
+    }
+
     this.render(filtered);
   },
 
@@ -1270,7 +1288,8 @@ document.addEventListener('DOMContentLoaded', () => {
   AuditLog.load = async function() {
     await _origAuditLoad();
     const res = await API.request('getGlobalLog');
-    if (res.success) AuditFilter.init(res.data);
+    const entries = Array.isArray(res.data) ? res.data : (res.data?.items || []);
+    if (res.success) AuditFilter.init(entries);
   };
 
   /* Show onboarding for new users */

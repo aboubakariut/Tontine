@@ -42,6 +42,10 @@ class Mailer {
         </a>
       </div>" : '';
 
+    /* Les heredocs PHP n'interpolent pas les constantes (APP_URL),
+       on passe par une variable locale pour pouvoir l'injecter. */
+    $appUrl = defined('APP_URL') ? APP_URL : 'https://tontine-iota.vercel.app';
+
     return <<<HTML
 <!DOCTYPE html>
 <html lang="fr">
@@ -83,7 +87,7 @@ class Mailer {
                  border:1px solid #cde8da;border-top:none;text-align:center">
         <p style="color:#6b9b7e;font-size:12px;margin:0">
           © 2025 Tontines Facile · Vous recevez cet email car vous êtes inscrit(e) sur notre plateforme.<br>
-          <a href="APP_URL/unsubscribe" style="color:#0f6b4a">Se désabonner</a>
+          <a href="$appUrl/unsubscribe" style="color:#0f6b4a">Se désabonner</a>
         </p>
       </td>
     </tr>
@@ -95,6 +99,7 @@ class Mailer {
 </html>
 HTML;
   }
+
 
   /* ── Envoi générique via l'API HTTP de Brevo ──
      Important : la fonction native mail() ne fonctionne PAS sur Vercel

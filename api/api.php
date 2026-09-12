@@ -66,7 +66,12 @@ function respond(bool $success, $data = null, string $message = '', int $code = 
     $out = ['success' => $success, 'version' => APP_VERSION];
     if ($data !== null) $out['data'] = $data;
     if ($message)       $out['message'] = $message;
-    echo json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    /* JSON_PRETTY_PRINT uniquement en développement (économise ~30% de bande passante en prod) */
+    $flags = JSON_UNESCAPED_UNICODE;
+    if (env('APP_DEBUG', 'false') === 'true' || env('APP_ENV', 'production') !== 'production') {
+        $flags |= JSON_PRETTY_PRINT;
+    }
+    echo json_encode($out, $flags);
     exit;
 }
 
@@ -258,6 +263,15 @@ class DB {
            Un membre peut joindre une capture d'écran de son transfert
            Mobile Money à sa déclaration de paiement. */
         self::addColumnIfMissing('payments', 'proof_image', 'LONGTEXT NULL');
+
+        /* ── Blocage temporel des tentatives de connexion ──
+           Stocke la date de fin de blocage pour un déblocage automatique
+           après 30 minutes, sans intervention manuelle de l'admin. */
+        self::addColumnIfMissing('users', 'locked_until', 'DATETIME NULL');
+
+        /* ── Rate limiting forgotPassword ──
+           Stocke la date du dernier envoi pour limiter les abus. */
+        self::addColumnIfMissing('users', 'last_password_reset_request', 'DATETIME NULL');
     }
 
     public static function migrate(): void {
@@ -770,15 +784,36 @@ try {
 
             if (!$user) error('Identifiants incorrects.');
             if (!$user['is_active']) error('Compte désactivé. Contactez le support.');
-            if ($user['login_attempts'] >= MAX_LOGIN_ATTEMPTS)
-                error('Compte temporairement bloqué. Réessayez dans 30 minutes.');
 
-            if (!password_verify($input['password'], $user['password'])) {
-                DB::q("UPDATE users SET login_attempts = login_attempts + 1 WHERE id = ?", [$user['id']]);
-                error('Identifiants incorrects.');
+            /* Blocage temporel : si locked_until est défini et non encore expiré,
+               refuser l'accès. Sinon, remettre le compteur à zéro automatiquement. */
+            $lockedUntil = $user['locked_until'] ?? null;
+            if ($lockedUntil && strtotime($lockedUntil) > time()) {
+                $remaining = ceil((strtotime($lockedUntil) - time()) / 60);
+                error("Compte temporairement bloqué. Réessayez dans $remaining minute(s).");
+            }
+            if ($lockedUntil && strtotime($lockedUntil) <= time()) {
+                /* Le blocage est expiré — réinitialiser automatiquement */
+                DB::q("UPDATE users SET login_attempts = 0, locked_until = NULL WHERE id = ?", [$user['id']]);
+                $user['login_attempts'] = 0;
             }
 
-            DB::q("UPDATE users SET login_attempts = 0 WHERE id = ?", [$user['id']]);
+            if (!password_verify($input['password'], $user['password'])) {
+                $attempts = (int)$user['login_attempts'] + 1;
+                if ($attempts >= MAX_LOGIN_ATTEMPTS) {
+                    /* Bloquer le compte pour 30 minutes */
+                    $lockedTill = date('Y-m-d H:i:s', time() + 1800);
+                    DB::q("UPDATE users SET login_attempts = ?, locked_until = ? WHERE id = ?",
+                        [$attempts, $lockedTill, $user['id']]);
+                    error('Trop de tentatives. Compte bloqué 30 minutes.');
+                } else {
+                    DB::q("UPDATE users SET login_attempts = ? WHERE id = ?", [$attempts, $user['id']]);
+                    $remaining = MAX_LOGIN_ATTEMPTS - $attempts;
+                    error("Identifiants incorrects. $remaining tentative(s) restante(s) avant blocage.");
+                }
+            }
+
+            DB::q("UPDATE users SET login_attempts = 0, locked_until = NULL WHERE id = ?", [$user['id']]);
             $token = Auth::createSession($user['id']);
             audit('security', 'Connexion', 'Connexion réussie', $user['id']);
             success(['user' => Auth::userToPublic($user), 'token' => $token], 'Bienvenue !');
@@ -1249,17 +1284,54 @@ try {
            puis déclarent leur paiement comme avant.
            ──────────────────────────────────── */
         case 'updateTontineMomo': {
-            $user = Auth::requireAdmin($input, (int)($input['tontineId'] ?? 0));
-            $tid  = (int)($input['tontineId'] ?? 0);
-            $operator = $input['momoOperator'] ?? '';
-            $number   = preg_replace('/\D/', '', $input['momoNumber'] ?? '');
+            $user     = Auth::requireAdmin($input, (int)($input['tontineId'] ?? 0));
+            $tid      = (int)($input['tontineId'] ?? 0);
+            $operator = strtolower(trim($input['momoOperator'] ?? ''));
+            $rawNumber = trim($input['momoNumber'] ?? '');
 
-            if (!in_array($operator, ['mtn', 'orange'], true)) error('Opérateur invalide.');
-            if (!preg_match('/^6[5-9]\d{7}$/', $number)) error('Numéro camerounais invalide (9 chiffres, commence par 6).');
+            /* Validation via la classe MobileMoney (multi-pays) */
+            require_once __DIR__ . '/MobileMoney.php';
+            $validOperators = array_keys(MobileMoney::OPERATORS);
+            if (!in_array($operator, $validOperators, true)) {
+                error('Opérateur invalide. Opérateurs acceptés : ' . implode(', ', $validOperators));
+            }
+
+            /* Valider le numéro — utiliser le pays si fourni, sinon validation générique */
+            $country = strtoupper(trim($input['country'] ?? ''));
+            $number  = MobileMoney::validateNumber($rawNumber, $operator, $country);
+            if (!$number) {
+                error('Numéro de téléphone invalide pour cet opérateur. Vérifiez le format.');
+            }
 
             DB::q("UPDATE tontines SET momo_operator = ?, momo_number = ? WHERE id = ?", [$operator, $number, $tid]);
             audit('admin', 'Numéro Mobile Money mis à jour', "$operator — $number", $user['id'], $tid);
             success(['momoOperator' => $operator, 'momoNumber' => $number], 'Numéro enregistré !');
+        }
+
+        /* ────────────────────────────────────
+           MOBILE MONEY : instructions de paiement
+           Retourne les instructions détaillées pour qu'un membre
+           sache exactement comment envoyer sa cotisation.
+           ──────────────────────────────────── */
+        case 'getMomoInfo': {
+            $user = Auth::requireAuth($input);
+            $tid  = (int)($input['tontineId'] ?? 0);
+            if (!$tid) error('ID de tontine manquant.');
+
+            $t = getTontineForUser($tid, $user['id']);
+            if (empty($t['momo_operator']) || empty($t['momo_number'])) {
+                error("L'administrateur n'a pas encore renseigné son numéro Mobile Money.");
+            }
+
+            require_once __DIR__ . '/MobileMoney.php';
+            $info = MobileMoney::getPaymentInfo(
+                $t['momo_operator'],
+                $t['momo_number'],
+                (float)$t['amount'],
+                'FCFA',
+                "Tour {$t['current_tour']} — {$t['name']}"
+            );
+            success($info);
         }
 
         /* ────────────────────────────────────
@@ -1397,22 +1469,30 @@ try {
             $user = Auth::requireAuth($input);
             $payments = DB::rows(
                 "SELECT p.id, 'out' as type, 'Mise tontine' as name, t.name as tontine,
-                        p.amount, DATE_FORMAT(p.paid_at,'%d/%m/%Y') as date, p.status
+                        p.amount, DATE_FORMAT(p.paid_at,'%d/%m/%Y') as date,
+                        p.status,
+                        COALESCE(p.paid_at, p.created_at) as sort_ts
                  FROM payments p JOIN tontines t ON t.id = p.tontine_id
                  WHERE p.user_id = ?
-                 ORDER BY p.created_at DESC LIMIT 50",
+                 ORDER BY sort_ts DESC LIMIT 50",
                 [$user['id']]
             );
             $disbursements = DB::rows(
                 "SELECT d.id, 'in' as type, 'Cagnotte reçue' as name, t.name as tontine,
-                        d.amount, DATE_FORMAT(d.disbursed_at,'%d/%m/%Y') as date, 'received' as status
+                        d.amount, DATE_FORMAT(d.disbursed_at,'%d/%m/%Y') as date,
+                        'received' as status,
+                        d.disbursed_at as sort_ts
                  FROM disbursements d JOIN tontines t ON t.id = d.tontine_id
                  WHERE d.user_id = ?
                  ORDER BY d.disbursed_at DESC LIMIT 20",
                 [$user['id']]
             );
             $all = array_merge($payments, $disbursements);
-            usort($all, fn($a, $b) => strcmp($b['date'], $a['date']));
+            /* Tri par timestamp ISO réel (pas par la date formatée dd/mm/YYYY
+               qui trierait alphabétiquement et donnerait des résultats faux) */
+            usort($all, fn($a, $b) => strcmp($b['sort_ts'] ?? '', $a['sort_ts'] ?? ''));
+            /* Supprimer le champ sort_ts de la réponse publique */
+            foreach ($all as &$item) unset($item['sort_ts']);
             success($all);
         }
 
@@ -1420,7 +1500,9 @@ try {
            AUDIT LOG: GLOBAL
            ──────────────────────────────────── */
         case 'getGlobalLog': {
-            $user = Auth::requireAuth($input);
+            $user   = Auth::requireAuth($input);
+            $limit  = min(100, max(10, (int)($input['limit'] ?? 50)));
+            $offset = max(0, (int)($input['offset'] ?? 0));
             $log = DB::rows(
                 "SELECT al.action_type as type, al.action, al.detail,
                         COALESCE(CONCAT(u.firstname,' ',LEFT(u.lastname,1),'.'), 'Système') as user,
@@ -1429,10 +1511,79 @@ try {
                  LEFT JOIN memberships m ON m.tontine_id = al.tontine_id AND m.user_id = ?
                  LEFT JOIN users u ON u.id = al.user_id
                  WHERE al.user_id = ? OR (al.tontine_id IS NOT NULL AND m.status = 'active')
-                 ORDER BY al.created_at DESC LIMIT 50",
+                 ORDER BY al.created_at DESC LIMIT ? OFFSET ?",
+                [$user['id'], $user['id'], $limit, $offset]
+            );
+            $total = DB::row(
+                "SELECT COUNT(*) as n FROM audit_log al
+                 LEFT JOIN memberships m ON m.tontine_id = al.tontine_id AND m.user_id = ?
+                 WHERE al.user_id = ? OR (al.tontine_id IS NOT NULL AND m.status = 'active')",
                 [$user['id'], $user['id']]
             );
-            success($log);
+            success(['items' => $log, 'total' => (int)$total['n'], 'offset' => $offset, 'limit' => $limit]);
+        }
+
+        /* ────────────────────────────────────
+           EXPORT: CSV transactions / log
+           Permet de télécharger les données au format CSV
+           pour usage hors-ligne (comptabilité, archivage, etc.)
+           ──────────────────────────────────── */
+        case 'exportData': {
+            $user = Auth::requireAuth($input);
+            $type = $input['type'] ?? 'transactions'; // 'transactions' | 'log'
+
+            if ($type === 'transactions') {
+                $payments = DB::rows(
+                    "SELECT DATE_FORMAT(p.paid_at,'%d/%m/%Y') as date, t.name as tontine,
+                            'Mise' as type_tx, p.amount, p.status
+                     FROM payments p JOIN tontines t ON t.id = p.tontine_id
+                     WHERE p.user_id = ? ORDER BY p.created_at DESC",
+                    [$user['id']]
+                );
+                $disbursements = DB::rows(
+                    "SELECT DATE_FORMAT(d.disbursed_at,'%d/%m/%Y') as date, t.name as tontine,
+                            'Cagnotte reçue' as type_tx, d.amount, 'received' as status
+                     FROM disbursements d JOIN tontines t ON t.id = d.tontine_id
+                     WHERE d.user_id = ? ORDER BY d.disbursed_at DESC",
+                    [$user['id']]
+                );
+                $rows = array_merge($payments, $disbursements);
+                $headers = ['Date', 'Tontine', 'Type', 'Montant (FCFA)', 'Statut'];
+                $data = array_map(fn($r) => [
+                    $r['date'] ?? '—', $r['tontine'], $r['type_tx'],
+                    number_format((float)$r['amount'], 0, ',', ' '), $r['status']
+                ], $rows);
+            } else {
+                /* Journal d'audit */
+                $rows = DB::rows(
+                    "SELECT DATE_FORMAT(al.created_at,'%d/%m/%Y %H:%i') as date,
+                            al.action_type as type, al.action, al.detail,
+                            COALESCE(CONCAT(u.firstname,' ',u.lastname), 'Système') as auteur
+                     FROM audit_log al
+                     LEFT JOIN memberships m ON m.tontine_id = al.tontine_id AND m.user_id = ?
+                     LEFT JOIN users u ON u.id = al.user_id
+                     WHERE al.user_id = ? OR (al.tontine_id IS NOT NULL AND m.status = 'active')
+                     ORDER BY al.created_at DESC LIMIT 500",
+                    [$user['id'], $user['id']]
+                );
+                $headers = ['Date', 'Type', 'Action', 'Détail', 'Auteur'];
+                $data = array_map(fn($r) => [
+                    $r['date'], $r['type'], $r['action'], $r['detail'] ?? '', $r['auteur']
+                ], $rows);
+            }
+
+            /* Générer CSV en mémoire */
+            $csv = '';
+            $csv .= implode(';', $headers) . "\n";
+            foreach ($data as $row) {
+                $csv .= implode(';', array_map(fn($v) => '"' . str_replace('"', '""', $v) . '"', $row)) . "\n";
+            }
+
+            success([
+                'csv'      => $csv,
+                'filename' => "tontines-facile-$type-" . date('Y-m-d') . '.csv',
+                'rows'     => count($data),
+            ], "Export généré : " . count($data) . " lignes.");
         }
 
         /* ────────────────────────────────────
@@ -1488,20 +1639,67 @@ try {
             $t    = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
             if (!$t) error('Tontine introuvable.');
 
-            $updates = [];
-            $params  = [];
+            $updates  = [];
+            $params   = [];
+            $changed  = [];
 
-            if (!empty($input['name']))        { $updates[] = 'name = ?';        $params[] = trim($input['name']); }
-            if (!empty($input['description'])) { $updates[] = 'description = ?'; $params[] = trim($input['description']); }
-            if (!empty($input['status']) && in_array($input['status'], ['active','paused','closed'])) {
-                $updates[] = 'status = ?'; $params[] = $input['status'];
+            /* Champs texte */
+            if (isset($input['name']) && trim($input['name']) !== '') {
+                $updates[] = 'name = ?'; $params[] = trim($input['name']); $changed[] = 'nom';
+            }
+            if (isset($input['description'])) {
+                $updates[] = 'description = ?'; $params[] = trim($input['description']); $changed[] = 'description';
+            }
+
+            /* Statut */
+            if (!empty($input['status']) && in_array($input['status'], ['active','paused','closed'], true)) {
+                $updates[] = 'status = ?'; $params[] = $input['status']; $changed[] = 'statut';
+            }
+
+            /* Montant (uniquement si le tour n'a pas encore commencé, ou si l'admin force) */
+            if (isset($input['amount']) && is_numeric($input['amount']) && (float)$input['amount'] >= 100) {
+                $updates[] = 'amount = ?'; $params[] = (float)$input['amount']; $changed[] = 'montant';
+            }
+
+            /* Fréquence */
+            if (!empty($input['frequency']) && in_array($input['frequency'], ['weekly','biweekly','monthly','quarterly'], true)) {
+                $updates[] = 'frequency = ?'; $params[] = $input['frequency']; $changed[] = 'fréquence';
+                /* Recalculer la prochaine date de paiement */
+                $nextDate = computeNextPaymentDate($input['frequency'], $t['start_date']);
+                $updates[] = 'next_payment_date = ?'; $params[] = $nextDate;
+            }
+
+            /* Nombre max de membres */
+            if (isset($input['maxMembers']) && is_numeric($input['maxMembers'])) {
+                $newMax = max((int)$t['current_members'], min(100, (int)$input['maxMembers']));
+                $updates[] = 'max_members = ?'; $params[] = $newMax; $changed[] = 'max membres';
+            }
+
+            /* Options booléennes */
+            if (isset($input['requireApproval'])) {
+                $updates[] = 'require_approval = ?'; $params[] = (int)!!$input['requireApproval']; $changed[] = 'approbation requise';
+            }
+            if (isset($input['publicLog'])) {
+                $updates[] = 'public_log = ?'; $params[] = (int)!!$input['publicLog']; $changed[] = 'log public';
+            }
+            if (isset($input['randomOrder'])) {
+                $updates[] = 'random_order = ?'; $params[] = (int)!!$input['randomOrder']; $changed[] = 'ordre aléatoire';
+            }
+            if (isset($input['penalties'])) {
+                $updates[] = 'penalties = ?'; $params[] = (int)!!$input['penalties']; $changed[] = 'pénalités';
+            }
+            if (isset($input['penaltyRate']) && is_numeric($input['penaltyRate'])) {
+                $updates[] = 'penalty_rate = ?'; $params[] = min(100, max(0, (float)$input['penaltyRate'])); $changed[] = 'taux pénalité';
             }
 
             if (!$updates) error('Aucune modification détectée.');
             $params[] = $tid;
             DB::q("UPDATE tontines SET " . implode(', ', $updates) . " WHERE id = ?", $params);
-            audit('admin', 'Tontine mise à jour', implode(', ', array_map(fn($k) => "$k modifié", array_keys($input))), $user['id'], $tid);
-            success(null, 'Tontine mise à jour.');
+            $changedStr = implode(', ', $changed);
+            audit('admin', 'Tontine mise à jour', "Champs modifiés : $changedStr", $user['id'], $tid);
+
+            $updated = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
+            success(formatTontineResponse($updated, $user['id']), 'Tontine mise à jour.');
         }
 
         /* ────────────────────────────────────
@@ -1531,6 +1729,13 @@ try {
             /* Toujours répondre success (sécurité : ne pas révéler si l'email existe) */
             $user = DB::row("SELECT * FROM users WHERE email = ?", [$email]);
             if ($user) {
+                /* Rate limiting : max 1 demande toutes les 5 minutes par compte */
+                $lastRequest = $user['last_password_reset_request'] ?? null;
+                if ($lastRequest && (time() - strtotime($lastRequest)) < 300) {
+                    /* On répond success quand même pour ne pas révéler que c'est limité */
+                    success(null, 'Si cet email est enregistré, vous recevrez un lien de réinitialisation.');
+                }
+
                 /* Supprimer les anciens tokens */
                 DB::q("DELETE FROM password_resets WHERE user_id = ? OR expires_at < NOW()", [$user['id']]);
 
@@ -1539,6 +1744,9 @@ try {
 
                 DB::insert("INSERT INTO password_resets (user_id, token, expires_at) VALUES (?,?,?)",
                     [$user['id'], $token, $expires]);
+
+                /* Marquer la date de la demande pour le rate limiting */
+                DB::q("UPDATE users SET last_password_reset_request = NOW() WHERE id = ?", [$user['id']]);
 
                 /* Envoi email */
                 require_once __DIR__ . '/Mailer.php';
@@ -1718,7 +1926,7 @@ try {
 
             $t = DB::row("SELECT * FROM tontines WHERE id = ?", [$tid]);
             $unpaid = DB::rows(
-                "SELECT u.id, u.firstname, u.lastname, u.email
+                "SELECT u.id, u.firstname, u.lastname, u.email, u.phone
                  FROM memberships m JOIN users u ON u.id=m.user_id
                  WHERE m.tontine_id=? AND m.status='active'
                  AND u.id NOT IN (SELECT user_id FROM payments WHERE tontine_id=? AND tour=? AND status='paid')",
@@ -1726,21 +1934,38 @@ try {
             );
 
             require_once __DIR__ . '/Mailer.php';
+            require_once __DIR__ . '/Sms.php';
+
+            $formattedAmount  = number_format((float)$t['amount'], 0, ',', ' ');
+            $deadlineDisplay  = $t['next_payment_date']
+                ? date('d/m/Y', strtotime($t['next_payment_date']))
+                : date('d/m/Y', strtotime('+7 days'));
+
+            $smsSent = 0;
             foreach ($unpaid as $m) {
                 notify($m['id'], 'payment_reminder', 'Rappel de paiement',
-                    'Votre mise de ' . number_format((float)$t['amount'], 0, ',', ' ') . ' FCFA est attendue.', $tid);
-                /* Envoi email de rappel */
+                    "Votre mise de $formattedAmount FCFA est attendue.", $tid);
+
+                /* Email de rappel */
                 Mailer::sendPaymentReminder(
                     $m['email'], $m['firstname'], $t['name'],
-                    number_format((float)$t['amount'], 0, ',', ' '),
-                    $t['next_payment_date'] ?? date('d/m/Y', strtotime('+7 days')),
-                    APP_URL
+                    $formattedAmount, $deadlineDisplay, APP_URL
                 );
+
+                /* SMS de rappel (si numéro disponible) */
+                if (!empty($m['phone'])) {
+                    $sent = Sms::sendPaymentReminder(
+                        $m['phone'], $m['firstname'], $t['name'],
+                        "$formattedAmount FCFA", $deadlineDisplay
+                    );
+                    if ($sent) $smsSent++;
+                }
             }
 
             $count = count($unpaid);
-            audit('admin', 'Rappels envoyés', "$count rappels (email + notif) — Tour {$t['current_tour']}", $user['id'], $tid);
-            success(['count' => $count], "$count rappel(s) envoyé(s) !");
+            $smsInfo = $smsSent > 0 ? " + $smsSent SMS" : '';
+            audit('admin', 'Rappels envoyés', "$count rappels (email + notif$smsInfo) — Tour {$t['current_tour']}", $user['id'], $tid);
+            success(['count' => $count, 'smsSent' => $smsSent], "$count rappel(s) envoyé(s) !");
         }
 
         /* ────────────────────────────────────

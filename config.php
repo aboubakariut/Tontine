@@ -85,7 +85,7 @@ define('FEATURE_PUSH_NOTIFICATIONS',  (bool) getenv('FEATURE_PUSH_NOTIFICATIONS'
 
 // Expirations
 define('INVITE_EXPIRY_DAYS', (int) (getenv('INVITE_EXPIRY_DAYS') ?: 7));
-define('INVITE_EXPIRY',      "+{INVITE_EXPIRY_DAYS} days");
+define('INVITE_EXPIRY',      '+' . INVITE_EXPIRY_DAYS . ' days');
 
 /* ─── Mode production stricte ─── */
 if (APP_ENV === 'production') {

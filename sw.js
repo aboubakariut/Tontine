@@ -3,14 +3,20 @@
    Offline support, cache stratégique, push notifications
    ══════════════════════════════════════════════════════ */
 
-const CACHE_NAME    = 'tf-cache-v1';
-const DYNAMIC_CACHE = 'tf-dynamic-v1';
+const CACHE_NAME    = 'tf-cache-v2';
+const DYNAMIC_CACHE = 'tf-dynamic-v2';
 
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
+  '/improvements.js',
+  '/manifest.json',
+  '/icons/icon-72.png',
+  '/icons/icon-96.png',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
   '/sw.js',
   'https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap'
 ];
@@ -20,7 +26,7 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       return cache.addAll(STATIC_ASSETS.map(url => new Request(url, { cache: 'reload' })))
-        .catch(() => cache.addAll(['/index.html', '/style.css', '/app.js']));
+        .catch(() => cache.addAll(['/index.html', '/style.css', '/app.js', '/improvements.js', '/manifest.json']));
     }).then(() => self.skipWaiting())
   );
 });
@@ -148,7 +154,7 @@ async function syncPayments() {
     const db = await openDB();
     const pending = await getFromDB(db, 'pending-actions');
     for (const action of (pending || [])) {
-      await fetch('api.php', {
+      await fetch('/api/api.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(action)

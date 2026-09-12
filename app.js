@@ -156,8 +156,8 @@ const API = {
           : { success: true, data: [] };
       case 'getGlobalLog':
         return isDemo
-          ? { success: true, data: App.demoData.globalLog }
-          : { success: true, data: [] };
+          ? { success: true, data: { items: App.demoData.globalLog, total: App.demoData.globalLog.length, offset: 0, limit: 50 } }
+          : { success: true, data: { items: [], total: 0, offset: 0, limit: 50 } };
       case 'getInvitations':
         return isDemo
           ? { success: true, data: App.demoData.invitations }
@@ -414,13 +414,18 @@ const Dashboard = {
 
     /* Stats */
     const active = tontines.filter(t => t.status === 'active').length;
-    const savings = tontines.reduce((sum, t) => sum + (t.amount || 0), 0);
+    const savings = tontines.reduce((sum, t) => sum + (parseFloat(t.pot) || parseFloat(t.amount) || 0), 0);
     const members = tontines.reduce((sum, t) => sum + (t.currentMembers || 0), 0);
-    const nextDate = tontines[0]?.nextPaymentDate || '—';
+    const rawNextDate = tontines[0]?.nextPaymentDate;
+    let formattedNextDate = '—';
+    if (rawNextDate) {
+      const nd = new Date(rawNextDate);
+      formattedNextDate = isNaN(nd.getTime()) ? rawNextDate : nd.toLocaleDateString('fr-FR');
+    }
 
     document.getElementById('stat-active').textContent = active;
     document.getElementById('stat-savings').textContent = UI.formatAmount(savings);
-    document.getElementById('stat-next').textContent = nextDate;
+    document.getElementById('stat-next').textContent = formattedNextDate;
     document.getElementById('stat-members').textContent = members;
     statIds.forEach(id => document.getElementById(id)?.classList.remove('text-skeleton'));
 
@@ -437,8 +442,9 @@ const Dashboard = {
     const logRes = await API.request('getGlobalLog');
     const actEl = document.getElementById('dashboard-activity-list');
     actEl.innerHTML = '';
-    if (logRes.success && logRes.data.length) {
-      logRes.data.slice(0, 4).forEach(entry => actEl.appendChild(UI.activityItem(entry)));
+    const logEntries = Array.isArray(logRes.data) ? logRes.data : (logRes.data?.items || []);
+    if (logRes.success && logEntries.length) {
+      logEntries.slice(0, 4).forEach(entry => actEl.appendChild(UI.activityItem(entry)));
     } else {
       actEl.innerHTML = '<div class="empty-state small"><p>Aucune activité récente</p></div>';
     }
@@ -884,9 +890,20 @@ const TontineDetail = {
       Toast.show("L'administrateur n'a pas encore renseigné de numéro Mobile Money pour cette tontine.", 'warning');
       return;
     }
-    const opLabel = t.momoOperator === 'orange' ? 'Orange Money' : 'MTN Mobile Money';
-    const ussdCode = t.momoOperator === 'orange' ? '#150#' : '*126#';
-    const dialHref = `tel:${encodeURIComponent(ussdCode)}`;
+    const opData = {
+      mtn:    { label: 'MTN Mobile Money', ussd: '*126#', emoji: '🟡' },
+      orange: { label: 'Orange Money',     ussd: '#150#', emoji: '🟠' },
+      wave:   { label: 'Wave',             ussd: '',      emoji: '🔵' },
+      moov:   { label: 'Moov Money',       ussd: '*155#', emoji: '🔴' },
+      mpesa:  { label: 'M-Pesa',           ussd: '*334#', emoji: '🟢' },
+      airtel: { label: 'Airtel Money',     ussd: '*166#', emoji: '🔴' },
+      free:   { label: 'Free Money',       ussd: '#150#', emoji: '🔴' },
+    };
+    const opInfo = opData[t.momoOperator] || { label: t.momoOperator || 'Mobile Money', ussd: '', emoji: '💳' };
+    const opLabel = opInfo.label;
+    const ussdActionHtml = opInfo.ussd
+      ? `<a href="tel:${encodeURIComponent(opInfo.ussd)}" class="btn-primary btn-full" style="text-decoration:none;display:block;text-align:center;margin-top:6px">📞 Composer ${opInfo.ussd}</a>`
+      : `<p style="font-size:var(--fs-sm);font-weight:600;color:var(--color-primary);margin-top:6px">Ouvrez votre application ${opLabel} pour effectuer le transfert.</p>`;
     const formattedNumber = t.momoNumber.replace(/(\d{3})(?=\d)/g, '$1 ').trim();
 
     Modal.open(`Payer via ${opLabel}`, `
@@ -894,7 +911,7 @@ const TontineDetail = {
         <p style="font-size:var(--fs-sm);color:var(--color-text-2);margin-bottom:12px">
           Cette tontine ne passe par aucun intermédiaire : votre cotisation part directement de votre téléphone vers celui de l'administrateur.
         </p>
-        <label class="form-label">1. Numéro à créditer</label>
+        <label class="form-label">1. Numéro à créditer (${opLabel})</label>
         <div class="invite-code-box">
           <span>${formattedNumber}</span>
           <button class="btn-icon" onclick="UI.copyText('${t.momoNumber}')">
@@ -907,8 +924,8 @@ const TontineDetail = {
         <p style="font-size:var(--fs-lg);font-weight:700;color:var(--color-primary)">${UI.formatAmount(t.amount)}</p>
       </div>
       <div class="form-group">
-        <label class="form-label">3. Composez le code ${opLabel}</label>
-        <a href="${dialHref}" class="btn-primary btn-full" style="text-decoration:none;display:block;text-align:center;margin-top:6px">📞 Composer ${ussdCode}</a>
+        <label class="form-label">3. Envoi via ${opLabel}</label>
+        ${ussdActionHtml}
         <p style="font-size:var(--fs-xs);color:var(--color-text-3);margin-top:6px">
           Choisissez "Transfert d'argent", entrez le numéro et le montant ci-dessus, puis validez avec votre code secret.
         </p>
@@ -1089,10 +1106,15 @@ const TontineDetail = {
           Ce numéro sera affiché aux membres pour qu'ils vous envoient directement leur cotisation. Tontines Facile ne détient jamais cet argent.
         </p>
         <select class="form-input" id="momo-operator" style="margin-bottom:8px">
-          <option value="mtn" ${t.momoOperator === 'mtn' || !t.momoOperator ? 'selected' : ''}>MTN Mobile Money</option>
-          <option value="orange" ${t.momoOperator === 'orange' ? 'selected' : ''}>Orange Money</option>
+          <option value="mtn" ${t.momoOperator === 'mtn' || !t.momoOperator ? 'selected' : ''}>🟡 MTN Mobile Money</option>
+          <option value="orange" ${t.momoOperator === 'orange' ? 'selected' : ''}>🟠 Orange Money</option>
+          <option value="wave" ${t.momoOperator === 'wave' ? 'selected' : ''}>🔵 Wave</option>
+          <option value="moov" ${t.momoOperator === 'moov' ? 'selected' : ''}>🔴 Moov Money</option>
+          <option value="mpesa" ${t.momoOperator === 'mpesa' ? 'selected' : ''}>🟢 M-Pesa</option>
+          <option value="airtel" ${t.momoOperator === 'airtel' ? 'selected' : ''}>🔴 Airtel Money</option>
+          <option value="free" ${t.momoOperator === 'free' ? 'selected' : ''}>🔴 Free Money</option>
         </select>
-        <input type="tel" class="form-input" id="momo-number" placeholder="6XXXXXXXX" value="${t.momoNumber || ''}" maxlength="9" />
+        <input type="tel" class="form-input" id="momo-number" placeholder="Ex: +225 07000000 ou 6XXXXXXXX" value="${t.momoNumber || ''}" maxlength="18" />
         <button class="btn-secondary btn-full mt" id="btn-save-momo">Enregistrer le numéro</button>
       </div>
       <div class="form-group">
@@ -1180,8 +1202,9 @@ const TontineDetail = {
       if (btn.disabled) return;
       const momoOperator = document.getElementById('momo-operator').value;
       const momoNumber = document.getElementById('momo-number').value.trim();
-      if (!/^6\d{8}$/.test(momoNumber)) {
-        Toast.show('Numéro invalide (9 chiffres, commence par 6).', 'error');
+      const cleanNumber = momoNumber.replace(/[\s.-]/g, '');
+      if (!/^(\+?\d{8,15})$/.test(cleanNumber)) {
+        Toast.show('Numéro invalide (8 à 15 chiffres).', 'error');
         return;
       }
       const originalLabel = btn.textContent;
@@ -1608,14 +1631,15 @@ const AuditLog = {
     const list = document.getElementById('audit-log-list');
     if (list) list.innerHTML = UI.skeletonRows(5);
     const res = await API.request('getGlobalLog');
-    if (!res.success || !res.data.length) {
+    const entries = Array.isArray(res.data) ? res.data : (res.data?.items || []);
+    if (!res.success || !entries.length) {
       list.innerHTML = '<div class="empty-state"><p>Aucune entrée dans le journal</p></div>';
       this.data = [];
       return;
     }
     list.innerHTML = '';
-    this.data = res.data;
-    res.data.forEach(entry => {
+    this.data = entries;
+    entries.forEach(entry => {
       const div = document.createElement('div');
       div.className = `log-item ${entry.type}`;
       div.innerHTML = `
