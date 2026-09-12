@@ -10,6 +10,7 @@
     { "src": "/api\\.php(.*)", "dest": "/api/api.php" },
     { "src": "/api/api\\.php(.*)", "dest": "/api/api.php" },
     { "src": "/sw\\.js", "dest": "/sw.js", "headers": { "Service-Worker-Allowed": "/", "Cache-Control": "no-cache, no-store, must-revalidate" } },
+    { "src": "/robots\\.txt", "dest": "/robots.txt", "headers": { "Content-Type": "text/plain", "Cache-Control": "public, max-age=86400" } },
     { "src": "/manifest\\.json", "dest": "/manifest.json", "headers": { "Content-Type": "application/manifest+json", "Cache-Control": "public, max-age=86400" } },
     { "src": "/style\\.css", "dest": "/style.css", "headers": { "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800" } },
     { "src": "/js/(.*)", "dest": "/js/$1", "headers": { "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800" } },
