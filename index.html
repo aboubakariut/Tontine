@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0f6b4a" />
   <meta name="description" content="Tontines Facile — Gérez vos tontines en toute transparence" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Tontines Facile" />
@@ -77,6 +78,20 @@
       </button>
     </div>
   </header>
+
+  <!-- ── BANNIÈRE MODE DÉMO ── -->
+  <div id="demo-banner" class="demo-banner hidden" aria-live="polite">
+    <div class="demo-banner-content">
+      <div class="demo-banner-text">
+        <span class="demo-badge">DÉMO</span>
+        <span>Vous visitez l'application avec des données fictives.</span>
+      </div>
+      <div class="demo-banner-actions">
+        <button class="demo-btn-auth demo-btn-register" id="btn-banner-register">Créer un compte</button>
+        <button class="demo-btn-auth demo-btn-login" id="btn-banner-login">Se connecter</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ── DROPDOWN MENU ── -->
   <div class="dropdown-menu hidden" id="dropdown-menu">
@@ -1007,7 +1022,37 @@
 <!-- ─ TOAST ─ -->
 <div class="toast-container" id="toast-container"></div>
 
-<script src="/app.js"></script>
+<!-- Cœur de l'application (Configuration, Notifications, Modales, UI, API, Navigation) -->
+<script src="/js/core/config.js"></script>
+<script src="/js/core/toast.js"></script>
+<script src="/js/core/modal.js"></script>
+<script src="/js/core/ui.js"></script>
+<script src="/js/core/api.js"></script>
+<script src="/js/core/nav.js"></script>
+
+<!-- Module utilitaire d'améliorations et de sécurité -->
 <script src="/improvements.js"></script>
+
+<!-- Modules fonctionnels par page -->
+<script src="/js/pages/auth.js"></script>
+<script src="/js/pages/dashboard.js"></script>
+<script src="/js/pages/tontines.js"></script>
+<script src="/js/pages/tontine-detail.js"></script>
+<script src="/js/pages/create-tontine.js"></script>
+<script src="/js/pages/join-tontine.js"></script>
+<script src="/js/pages/transactions.js"></script>
+<script src="/js/pages/audit-log.js"></script>
+<script src="/js/pages/profile.js"></script>
+<script src="/js/pages/settings.js"></script>
+<script src="/js/pages/contacts.js"></script>
+<script src="/js/pages/chat.js"></script>
+<script src="/js/pages/invite.js"></script>
+
+<!-- Modules PWA et Installation native WebAPK -->
+<script src="/js/pwa/pwa-install.js"></script>
+<script src="/js/pwa/sw-manager.js"></script>
+
+<!-- Point d'entrée principal de l'application -->
+<script src="/js/app.js"></script>
 </body>
 </html>

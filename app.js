@@ -18,6 +18,22 @@ const App = {
     security: { pin: false, hideAmounts: false }
   },
 
+  isDemoMode() {
+    return this.token === 'demo-token-123';
+  },
+
+  checkDemoRestriction(actionLabel) {
+    if (this.isDemoMode()) {
+      if (typeof Modal !== 'undefined' && Modal.showDemoRestriction) {
+        Modal.showDemoRestriction(actionLabel);
+      } else {
+        alert('Cette fonctionnalité nécessite un compte connecté.');
+      }
+      return true;
+    }
+    return false;
+  },
+
   /* Demo data for offline/demo mode */
   demoData: {
     user: {
@@ -115,6 +131,97 @@ const API = {
   },
 
   async request(action, data = {}) {
+    /* 1. Action de connexion en démo : immédiate sans requête réseau */
+    if (action === 'demo') {
+      return { success: true, user: App.demoData.user, token: 'demo-token-123' };
+    }
+
+    /* 2. Si l'utilisateur est en mode démo, filtrer strictement l'accès */
+    if (App.isDemoMode()) {
+      /* Actions consultatives / statiques autorisées en mode démo */
+      const demoQueries = {
+        getTontines: () => ({ success: true, data: App.demoData.tontines }),
+        getTontine: () => {
+          const tid = Number(data.tontineId || 1);
+          const t = App.demoData.tontines.find(item => item.id === tid) || App.demoData.tontines[0];
+          return { success: true, data: t };
+        },
+        getTransactions: () => ({ success: true, data: App.demoData.transactions }),
+        getGlobalLog: () => ({ success: true, data: { items: App.demoData.globalLog, total: App.demoData.globalLog.length, offset: 0, limit: 50 } }),
+        getInvitations: () => ({ success: true, data: App.demoData.invitations }),
+        getNotifications: () => ({ success: true, data: { notifications: [], unread: 0 } }),
+        getStats: () => ({ success: true, data: { activeTontines: 2, totalSavings: 260000, totalMembers: 14 } }),
+        getPendingMembers: () => ({ success: true, data: [] }),
+        getConversations: () => ({ success: true, data: [] }),
+        getMessages: () => ({ success: true, data: [] }),
+        getMomoInfo: () => ({
+          success: true,
+          data: {
+            operator: 'MTN Mobile Money',
+            number: '+225 07 04 23 45 10',
+            amountFormatted: '25 000 FCFA',
+            ussdCode: '*126#'
+          }
+        }),
+        searchTontine: () => {
+          const code = (data.code || '').toUpperCase().trim();
+          const t = App.demoData.tontines.find(item => (item.inviteCode || '').toUpperCase() === code);
+          if (t) {
+            return {
+              success: true,
+              data: {
+                id: t.id,
+                name: t.name,
+                amount: t.amount,
+                members: `${t.currentMembers}/${t.maxMembers}`,
+                admin: t.members.find(m => m.role === 'Administrateur')?.name || 'Admin',
+                start: t.startDate,
+                desc: t.description
+              }
+            };
+          }
+          return { success: false, message: 'Tontine introuvable avec ce code en démo (essayez TF-FAM001).' };
+        }
+      };
+
+      if (demoQueries[action]) {
+        return demoQueries[action]();
+      }
+
+      /* TOUTES LES AUTRES ACTIONS sont des mutations backend : BLOQUÉES EN DÉMO */
+      const demoActionLabels = {
+        createTontine:     'créer une nouvelle tontine',
+        joinTontine:       'rejoindre une tontine',
+        recordPayment:     'confirmer ou valider un paiement',
+        declarePayment:    'déclarer un paiement de cotisation',
+        rejectPayment:     'rejeter une déclaration de paiement',
+        nextTour:          'passer au tour suivant',
+        settleDebt:        'marquer une dette comme réglée',
+        approveMember:     'approuver ou refuser une demande d\'adhésion',
+        updateMemberRole:  'modifier les privilèges d\'administration',
+        removeMember:      'retirer un membre de la tontine',
+        updateTontine:     'modifier les informations de la tontine',
+        updateTontineIcon: 'changer la photo ou l\'icône de la tontine',
+        updateTontineMomo: 'enregistrer vos coordonnées Mobile Money',
+        closeTontine:      'fermer définitivement la tontine',
+        deleteTontine:     'supprimer définitivement la tontine',
+        sendInvite:        'envoyer des invitations par email',
+        sendReminder:      'envoyer des rappels par email ou SMS',
+        updateProfile:     'mettre à jour vos informations personnelles',
+        changePassword:    'changer votre mot de passe',
+        updateAvatar:      'modifier votre photo de profil',
+        sendMessage:       'envoyer des messages dans le chat',
+        exportData:        'télécharger l\'export CSV des données'
+      };
+
+      const label = demoActionLabels[action] || 'effectuer cette action backend';
+      if (typeof Modal !== 'undefined' && Modal.showDemoRestriction) {
+        Modal.showDemoRestriction(label);
+      }
+      return { success: false, demoRestricted: true, message: `Fonctionnalité réservée aux membres connectés pour ${label}.` };
+    }
+
+    /* 3. Utilisateur réel : appel au serveur backend */
     this._showLoadingBar();
     try {
       const res = await fetch(this.base, {
@@ -124,9 +231,6 @@ const API = {
       });
       return await res.json();
     } catch {
-      /* Vraie coupure réseau (pas une réponse du serveur) — on le distingue
-         d'un refus légitime du serveur pour permettre une remise en file
-         d'attente automatique (voir Chat.send / Chat.flushOfflineQueue). */
       const fallback = this.demoFallback(action, data);
       fallback.networkError = true;
       return fallback;
@@ -136,44 +240,11 @@ const API = {
   },
 
   demoFallback(action, data) {
-    /* Mode démo uniquement si token démo explicite */
-    const isDemo = App.token === 'demo-token-123';
-
     switch (action) {
-      case 'demo':
-        return { success: true, user: App.demoData.user, token: 'demo-token-123' };
       case 'login':
         return { success: false, message: 'Serveur inaccessible. Vérifiez votre connexion.' };
       case 'register':
         return { success: false, message: 'Serveur inaccessible. Vérifiez votre connexion.' };
-      case 'getTontines':
-        return isDemo
-          ? { success: true, data: App.demoData.tontines }
-          : { success: true, data: [] };
-      case 'getTransactions':
-        return isDemo
-          ? { success: true, data: App.demoData.transactions }
-          : { success: true, data: [] };
-      case 'getGlobalLog':
-        return isDemo
-          ? { success: true, data: { items: App.demoData.globalLog, total: App.demoData.globalLog.length, offset: 0, limit: 50 } }
-          : { success: true, data: { items: [], total: 0, offset: 0, limit: 50 } };
-      case 'getInvitations':
-        return isDemo
-          ? { success: true, data: App.demoData.invitations }
-          : { success: true, data: [] };
-      case 'searchTontine':
-        return { success: false, message: 'Serveur inaccessible.' };
-      case 'createTontine':
-        return { success: false, message: 'Serveur inaccessible.' };
-      case 'joinTontine':
-        return { success: false, message: 'Serveur inaccessible.' };
-      case 'recordPayment':
-        return { success: false, message: 'Serveur inaccessible.' };
-      case 'sendInvite':
-        return { success: false, message: 'Serveur inaccessible.' };
-      case 'updateProfile':
-        return { success: false, message: 'Serveur inaccessible.' };
       default:
         return { success: false, message: 'Serveur inaccessible.' };
     }
@@ -372,6 +443,16 @@ const Auth = {
     Storage.save('user', user);
     Storage.save('token', token);
 
+    /* Gestion de la bannière démo */
+    const banner = document.getElementById('demo-banner');
+    if (banner) {
+      if (App.isDemoMode()) {
+        banner.classList.remove('hidden');
+      } else {
+        banner.classList.add('hidden');
+      }
+    }
+
     /* Petit délai pour s'assurer que le DOM est prêt */
     setTimeout(() => {
       UI.updateUserInfo();
@@ -382,6 +463,24 @@ const Auth = {
     Nav.go('dashboard');
     Toast.show(`Bienvenue, ${user?.firstname || user?.email || ''} ! 👋`, 'success');
   },
+
+  exitDemoToAuth(tab = 'login') {
+    App.currentUser = null;
+    App.token = null;
+    Storage.remove('user');
+    Storage.remove('token');
+    RouteMemory.clear();
+    Nav.history = [];
+    document.getElementById('demo-banner')?.classList.add('hidden');
+    Nav.go('auth');
+    document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+    const targetTab = document.querySelector(`.auth-tab[data-tab="${tab}"]`);
+    const targetForm = document.getElementById(`form-${tab}`);
+    if (targetTab) targetTab.classList.add('active');
+    if (targetForm) targetForm.classList.add('active');
+  },
+
   logout() {
     if (!window.confirm('Se déconnecter de Tontines Facile ?')) return;
     App.currentUser = null;
@@ -390,6 +489,7 @@ const Auth = {
     Storage.remove('token');
     RouteMemory.clear();
     Nav.history = [];
+    document.getElementById('demo-banner')?.classList.add('hidden');
     /* Forcer le rechargement complet pour nettoyer l'état */
     window.location.href = '/';
   }
@@ -566,6 +666,7 @@ const TontineDetail = {
   },
 
   async respondPending(tontineId, memberId, action, btnEl = null) {
+    if (App.checkDemoRestriction(action === 'approve' ? 'approuver un membre' : 'refuser un membre')) return;
     /* Petit état de chargement sur le bouton cliqué, pour un retour immédiat */
     const row = btnEl?.closest('.contact-item-actions');
     if (row) row.querySelectorAll('button').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
@@ -792,6 +893,7 @@ const TontineDetail = {
   },
 
   async recordPayment(memberId) {
+    if (App.checkDemoRestriction('confirmer un paiement')) return;
     const member = App.currentTontine.members.find(m => m.id === memberId);
     const memberName = member?.name || 'ce membre';
     const debt = Number(member?.debt) || 0;
@@ -841,6 +943,7 @@ const TontineDetail = {
 
   /* Marque manuellement la dette d'un membre comme réglée (ex: en main propre) */
   async settleDebt(memberId) {
+    if (App.checkDemoRestriction('marquer une dette comme réglée')) return;
     const member = App.currentTontine.members.find(m => m.id === memberId);
     if (!member || !(Number(member.debt) > 0)) return;
     const confirmed = await Modal.confirm(
@@ -863,6 +966,7 @@ const TontineDetail = {
      bénéficiaire actuel, enregistre une dette pour qui n'a pas payé, et
      prévient l'admin avant de continuer s'il reste des impayés. */
   async advanceTour(force = false) {
+    if (App.checkDemoRestriction('passer au tour suivant')) return;
     const t = App.currentTontine;
     const res = await API.request('nextTour', { tontineId: t.id, force });
     if (!res.success) { Toast.show(res.message || 'Erreur', 'error'); return; }
@@ -885,6 +989,7 @@ const TontineDetail = {
   /* Affiche comment payer directement l'admin (numéro Mobile Money personnel),
      puis laisse le membre déclarer son paiement — l'app ne touche jamais l'argent. */
   payMobileMoney(tontineId) {
+    if (App.checkDemoRestriction('effectuer un paiement Mobile Money')) return;
     const t = App.currentTontine;
     if (!t.momoNumber || !t.momoOperator) {
       Toast.show("L'administrateur n'a pas encore renseigné de numéro Mobile Money pour cette tontine.", 'warning');
@@ -1008,6 +1113,7 @@ const TontineDetail = {
   },
 
   async rejectPayment(memberId) {
+    if (App.checkDemoRestriction('rejeter une déclaration de paiement')) return;
     const member = App.currentTontine.members.find(m => m.id === memberId);
     const memberName = member?.name || 'ce membre';
     const confirmed = await Modal.confirm(
@@ -1027,6 +1133,7 @@ const TontineDetail = {
   },
 
   async updateMemberRole(memberId, role) {
+    if (App.checkDemoRestriction('modifier le rôle d\'un membre')) return;
     const member = App.currentTontine.members.find(m => m.id === memberId);
     const memberName = member?.name || 'ce membre';
     const label = role === 'admin' ? 'nommer administrateur' : 'retirer les droits admin de';
@@ -1042,6 +1149,7 @@ const TontineDetail = {
   },
 
   async removeMember(memberId) {
+    if (App.checkDemoRestriction('retirer un membre de la tontine')) return;
     const member = App.currentTontine.members.find(m => m.id === memberId);
     const memberName = member?.name || 'ce membre';
     const confirmed = await Modal.confirm(
@@ -1293,6 +1401,7 @@ const CreateTontine = {
     dateInput.valueAsDate = new Date();
 
     document.getElementById('btn-create-tontine').addEventListener('click', async () => {
+      if (App.checkDemoRestriction('créer une tontine')) return;
       const name = document.getElementById('create-name').value.trim();
       const desc = document.getElementById('create-desc').value.trim();
       const amount = parseInt(document.getElementById('create-amount').value);
@@ -1334,25 +1443,28 @@ const JoinTontine = {
   init() {
     document.getElementById('btn-join-search').addEventListener('click', async () => {
       const code = document.getElementById('join-code').value.trim().toUpperCase();
-      if (!code || code.length < 4) { Toast.show('Entrez un code valide', 'error'); return; }
+      if (!code) { Toast.show('Entrez un code d\'invitation', 'error'); return; }
+
       UI.setLoading('btn-join-search', true, 'Recherche...');
       const res = await API.request('searchTontine', { code });
       UI.setLoading('btn-join-search', false, 'Rechercher');
+
       if (res.success) {
         const t = res.data;
         document.getElementById('preview-name').textContent = t.name;
-        document.getElementById('preview-amount').textContent = UI.formatAmount(t.amount) + ' FCFA';
+        document.getElementById('preview-amount').textContent = UI.formatAmount(t.amount);
         document.getElementById('preview-members').textContent = t.members;
         document.getElementById('preview-admin').textContent = t.admin;
         document.getElementById('preview-start').textContent = t.start;
-        document.getElementById('preview-desc').textContent = t.desc || '';
+        document.getElementById('preview-desc').textContent = t.desc;
         document.getElementById('join-preview').classList.remove('hidden');
       } else {
-        Toast.show('Tontine non trouvée. Vérifiez le code.', 'error');
+        Toast.show(res.message || 'Tontine introuvable. Vérifiez le code.', 'error');
       }
     });
 
     document.getElementById('btn-confirm-join').addEventListener('click', async () => {
+      if (App.checkDemoRestriction('rejoindre cette tontine')) return;
       const code = document.getElementById('join-code').value.trim().toUpperCase();
       UI.setLoading('btn-confirm-join', true, 'Envoi...');
       const res = await API.request('joinTontine', { code });
@@ -1439,6 +1551,7 @@ const Profile = {
 
   init() {
     document.getElementById('btn-save-profile').addEventListener('click', async () => {
+      if (App.checkDemoRestriction('modifier votre profil')) return;
       const data = {
         firstname: document.getElementById('profile-firstname').value.trim(),
         lastname: document.getElementById('profile-lastname').value.trim(),
@@ -1464,6 +1577,7 @@ const Profile = {
 
     /* Photo de profil : clic sur le crayon ouvre le sélecteur de fichier */
     document.getElementById('btn-edit-avatar').addEventListener('click', () => {
+      if (App.checkDemoRestriction('changer votre photo de profil')) return;
       document.getElementById('avatar-file-input').click();
     });
     document.getElementById('avatar-file-input').addEventListener('change', async (e) => {
@@ -1490,6 +1604,7 @@ const Profile = {
     });
 
     document.getElementById('btn-change-password').addEventListener('click', async () => {
+      if (App.checkDemoRestriction('changer votre mot de passe')) return;
       const cur = document.getElementById('current-password').value;
       const nw  = document.getElementById('new-password').value;
       if (!cur || !nw) { Toast.show('Entrez l\'ancien et le nouveau mot de passe', 'error'); return; }
@@ -1658,6 +1773,7 @@ const Invite = {
 
   init() {
     document.getElementById('btn-send-invite').addEventListener('click', async () => {
+      if (App.checkDemoRestriction('envoyer une invitation par email')) return;
       const select = document.getElementById('invite-tontine-select');
       const tontineId = select.value;
       const email = document.getElementById('invite-email').value.trim();
@@ -1972,6 +2088,7 @@ const Chat = {
 
     /* Pièce jointe (photo ou fichier) */
     document.getElementById('btn-chat-attach').addEventListener('click', () => {
+      if (App.checkDemoRestriction('envoyer une pièce jointe')) return;
       document.getElementById('chat-file-input').click();
     });
     document.getElementById('chat-file-input').addEventListener('change', async (e) => {
@@ -1992,7 +2109,10 @@ const Chat = {
     });
 
     /* Message vocal */
-    document.getElementById('btn-chat-record').addEventListener('click', () => this.toggleRecording());
+    document.getElementById('btn-chat-record').addEventListener('click', () => {
+      if (App.checkDemoRestriction('envoyer un message vocal')) return;
+      this.toggleRecording();
+    });
 
     /* Recherche dans la liste des conversations (comme WhatsApp) */
     document.getElementById('search-conversations')?.addEventListener('input', (e) => {
@@ -2009,6 +2129,7 @@ const Chat = {
   isRecording: false,
 
   async toggleRecording() {
+    if (App.checkDemoRestriction('enregistrer un message vocal')) return;
     const btn = document.getElementById('btn-chat-record');
     if (this.isRecording) {
       this.mediaRecorder?.stop();
@@ -2163,6 +2284,7 @@ const Chat = {
   /* Démarre (ou récupère) une conversation 1-à-1 avec un contact, et ouvre
      directement le fil de discussion — appelé depuis la page Contacts */
   async openWithUser(userId) {
+    if (App.checkDemoRestriction('démarrer une conversation privée')) return;
     const res = await API.request('startConversation', { userId });
     if (!res.success) { Toast.show(res.message || 'Impossible de démarrer la discussion', 'error'); return; }
     const contact = (Contacts && Array.isArray(Contacts._lastAccepted)) ? Contacts._lastAccepted.find(c => String(c.id) === String(userId)) : null;
@@ -2171,6 +2293,7 @@ const Chat = {
 
   /* Ouvre (ou crée) le chat de groupe d'une tontine — réservé aux membres actifs */
   async openTontineChat(tontineId) {
+    if (App.checkDemoRestriction('accéder au chat de groupe')) return;
     const res = await API.request('getOrCreateTontineChat', { tontineId });
     if (!res.success) { Toast.show(res.message || 'Chat indisponible', 'error'); return; }
     const fallbackName = App.currentTontine?.id === tontineId ? App.currentTontine.name : 'Chat de groupe';
@@ -2380,6 +2503,7 @@ const Chat = {
   },
 
   async send() {
+    if (App.checkDemoRestriction('envoyer des messages dans le chat')) return;
     if (this._sending) return;
     const input = document.getElementById('chat-message-input');
     const body = input.value.trim();
@@ -2698,6 +2822,36 @@ const Modal = {
         if (e.target === document.getElementById('modal-overlay')) { this.close(); resolve(false); }
       }, { once: true });
     });
+  },
+
+  showDemoRestriction(actionLabel = 'effectuer cette opération') {
+    this.open('Accès réservé', `
+      <div class="demo-restricted-body">
+        <div class="demo-restricted-icon">🔒</div>
+        <h3 class="demo-restricted-title">Fonctionnalité réservée aux membres</h3>
+        <p class="demo-restricted-desc">
+          Vous explorez actuellement Tontines Facile en <strong>mode démo</strong> avec des données d'exemple.<br/>
+          Pour <strong>${actionLabel}</strong>, vous devez vous connecter ou créer un compte réel.
+        </p>
+        <div class="demo-highlight-box">
+          ✨ <strong>100% gratuit et instantané :</strong> Créez votre compte en moins d'une minute pour lancer votre vraie tontine.
+        </div>
+      </div>
+    `, `
+      <button class="btn-primary btn-full" id="btn-modal-demo-register" style="margin-bottom:8px">✨ Créer mon compte gratuit</button>
+      <button class="btn-outline btn-full" id="btn-modal-demo-login" style="margin-bottom:8px">Se connecter</button>
+      <button class="btn-ghost btn-full" onclick="Modal.close()">Continuer la visite démo</button>
+    `);
+
+    document.getElementById('btn-modal-demo-register')?.addEventListener('click', () => {
+      Modal.close();
+      Auth.exitDemoToAuth('register');
+    });
+
+    document.getElementById('btn-modal-demo-login')?.addEventListener('click', () => {
+      Modal.close();
+      Auth.exitDemoToAuth('login');
+    });
   }
 };
 
@@ -2815,6 +2969,14 @@ function setupEventListeners() {
 
   /* Passage au tour suivant (versement de la cagnotte) */
   document.getElementById('btn-next-tour')?.addEventListener('click', () => TontineDetail.advanceTour());
+
+  /* Bannière mode démo */
+  document.getElementById('btn-banner-register')?.addEventListener('click', () => {
+    Auth.exitDemoToAuth('register');
+  });
+  document.getElementById('btn-banner-login')?.addEventListener('click', () => {
+    Auth.exitDemoToAuth('login');
+  });
 
   /* Export CSV/Excel — câblé une seule fois ; lit les données à jour au clic */
   document.getElementById('btn-export-transactions')?.addEventListener('click', () => {
@@ -2970,6 +3132,9 @@ async function init() {
   if (isLoggedIn) {
     App.currentUser = savedUser;
     App.token = savedToken;
+    if (App.isDemoMode()) {
+      document.getElementById('demo-banner')?.classList.remove('hidden');
+    }
     UI.updateUserInfo();
     await restoreRoute(savedRoute);
   } else {
@@ -3173,6 +3338,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const newBtn = createBtn.cloneNode(true);
       createBtn.parentNode.replaceChild(newBtn, createBtn);
       newBtn.addEventListener('click', async () => {
+        if (App.checkDemoRestriction('créer une tontine')) return;
         const name   = document.getElementById('create-name')?.value.trim();
         const amount = document.getElementById('create-amount')?.value;
 
